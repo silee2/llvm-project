@@ -587,6 +587,9 @@ def ConvertGPUToSPIRV : Pass<"convert-gpu-to-spirv", "ModuleOp"> {
            "bool", /*default=*/"false",
            "Use the NV cooperative matrix extension insted of the KHR extension"
            " to lower GPU WMMA ops">,
+    Option<"useOpenCL", "use-opencl",
+           "bool", /*default=*/"false",
+           "Use OpenCL instead of Vulkan">
   ];
 }
 
