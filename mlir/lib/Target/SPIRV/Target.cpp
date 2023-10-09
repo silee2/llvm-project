@@ -16,9 +16,11 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVAttributes.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVOps.h"
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
+#include "mlir/Target/SPIRV/Serialization.h"
 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FileUtilities.h"
@@ -75,18 +77,26 @@ SPIRVTargetAttrImpl::serializeToObject(Attribute attribute, Operation *module,
     module->emitError("Module must be a GPU module.");
     return std::nullopt;
   }
-#if 0
-#if MLIR_CUDA_CONVERSIONS_ENABLED == 1
-  NVPTXSerializer serializer(*module, cast<NVVMTargetAttr>(attribute), options);
-  serializer.init();
-  return serializer.run();
-#else
-  module->emitError(
-      "The `NVPTX` target was not built. Please enable it when building LLVM.");
-  return std::nullopt;
-#endif // MLIR_CUDA_CONVERSIONS_ENABLED == 1
-#endif
-  return std::nullopt;
+  auto gpuMod = dyn_cast<gpu::GPUModuleOp>(module);
+  auto spvMods = gpuMod.getOps<spirv::ModuleOp>();
+  auto spvMod = *spvMods.begin();
+  llvm::SmallVector<uint32_t, 0> spvBinary;
+
+  spvBinary.clear();
+  // serialize the spv module to spv binary
+  if (mlir::failed(spirv::serialize(spvMod, spvBinary))) {
+    spvMod.emitError() << "Failed to serialize SPIR-V module";
+    return std::nullopt;
+  }
+
+  SmallVector<char, 0> spvData;
+  const char *data = reinterpret_cast<const char *>(spvBinary.data());
+  for(uint32_t i = 0; i < spvBinary.size() * sizeof(uint32_t) ; i++) {
+      spvData.push_back(*(data + i));
+  }
+
+  spvMod.erase();
+  return spvData;
 }
 
 
@@ -99,12 +109,6 @@ SPIRVTargetAttrImpl::createObject(Attribute attribute,
   gpu::CompilationTarget format = options.getCompilationTarget();
   DictionaryAttr objectProps;
   Builder builder(attribute.getContext());
-  // "if" part seems irrelevant for SPIRV
-#if 0
-  if (format == gpu::CompilationTarget::Assembly)
-    objectProps = builder.getDictionaryAttr(
-        {builder.getNamedAttr("O", builder.getI32IntegerAttr(target.getO()))});
-#endif
   return builder.getAttr<gpu::ObjectAttr>(
       attribute, format,
       builder.getStringAttr(StringRef(object.data(), object.size())),
