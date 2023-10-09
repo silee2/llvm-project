@@ -174,6 +174,21 @@ def SPIRV_TargettAttr : SPIRV_Attr<"SPIRVTarget", "target"> {
   let description = [{
     GPU target attribute for controlling compilation of SPIRV targets.
   }];
+  let parameters = (ins
+    StringRefParameter<"Addressing Model.", "\"Physical64\"">:$amod,
+    StringRefParameter<"Memory Model.", "\"OpenCL\"">:$mmod
+  );
+  let assemblyFormat = [{
+    (`<` struct($amod, $mmod)^ `>`)?
+  }];
+  let builders = [
+    AttrBuilder<(ins CArg<"StringRef", "\"Physical64\"">:$amod,
+                     CArg<"StringRef", "\"OpenCL\"">:$mmod), [{
+      return Base::get($_ctxt, amod, mmod);
+    }]>
+  ];
+  let skipDefaultBuilders = 1;
+  let genVerifyDecl = 1;
 }
 
 #endif // MLIR_DIALECT_SPIRV_IR_TARGET_AND_ABI
