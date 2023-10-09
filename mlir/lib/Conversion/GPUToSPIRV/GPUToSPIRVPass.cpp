@@ -57,8 +57,8 @@ void GPUToSPIRVPass::runOnOperation() {
   module.walk([&](gpu::GPUModuleOp moduleOp) {
     // Clone each GPU kernel module for conversion, given that the GPU
     // launch op still needs the original GPU kernel module.
-    // builder.setInsertionPoint(moduleOp.getOperation());
-    builder.setInsertionPoint(moduleOp.getBody(), moduleOp.getBody()->begin());
+    this->useOpenCL ? builder.setInsertionPoint(moduleOp.getBody(), moduleOp.getBody()->begin()) :
+    builder.setInsertionPoint(moduleOp.getOperation());
     gpuModules.push_back(builder.clone(*moduleOp.getOperation()));
   });
 
