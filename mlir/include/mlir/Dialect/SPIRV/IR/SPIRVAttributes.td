@@ -166,4 +166,14 @@ def SPIRV_ResourceLimitsAttr : SPIRV_Attr<"ResourceLimits", "resource_limits"> {
   let assemblyFormat = "`<` struct(params) `>`";
 }
 
+//===----------------------------------------------------------------------===//
+// SPIRV target attribute.
+//===----------------------------------------------------------------------===//
+
+def SPIRV_TargettAttr : SPIRV_Attr<"SPIRVTarget", "target"> {
+  let description = [{
+    GPU target attribute for controlling compilation of SPIRV targets.
+  }];
+}
+
 #endif // MLIR_DIALECT_SPIRV_IR_TARGET_AND_ABI
