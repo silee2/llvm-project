@@ -188,4 +188,35 @@ def GpuROCDLAttachTarget: Pass<"rocdl-attach-target", ""> {
   ];
 }
 
+def GpuSPIRVAttachTarget: Pass<"spirv-attach-target", ""> {
+  let summary = "Attaches an SPIRV target attribute to a GPU Module.";
+  let description = [{
+    This pass searches for all GPU Modules in the immediate regions and attaches
+    an SPIRV target if the module matches the name specified by the `module` argument.
+
+    Example:
+    ```
+    // File: in.mlir:
+    gpu.module @nvvm_module_1 {...}
+    gpu.module @spirv_module_1 {...}
+    gpu.module @spirv_module_2 {...}
+    // mlir-opt --spirv-attach-target="module=spirv.* amod=Physical64 mmod=OpenCL" in.mlir
+    gpu.module @nvvm_module_1 {...}
+    gpu.module @spirv_module_1 [#spirv.target<amod = "Physical64", mmod = "OpenCL">] {...}
+    gpu.module @spirv_module_2 [#spirv.target<amod = "Physical64", mmod = "OpenCL">] {...}
+    ```
+  }];
+  let options = [
+    Option<"moduleMatcher", "module", "std::string",
+           /*default=*/ [{""}],
+           "Regex used to identify the modules to attach the target to.">,
+    Option<"addressModel", "amod", "std::string",
+           /*default=*/ "\"Physical64\"",
+           "Address model.">,
+    Option<"memoryModel", "mmod", "std::string",
+           /*default=*/ "\"OpenCL\"",
+           "Memory model.">,
+  ];
+}
+
 #endif // MLIR_DIALECT_GPU_PASSES
