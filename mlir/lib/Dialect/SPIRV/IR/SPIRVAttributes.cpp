@@ -682,6 +682,23 @@ void SPIRVDialect::printAttribute(Attribute attr,
 }
 
 //===----------------------------------------------------------------------===//
+// SPIRV target attribute.
+//===----------------------------------------------------------------------===//
+LogicalResult
+SPIRVTargetAttr::verify(function_ref<InFlightDiagnostic()> emitError,
+                       StringRef amod, StringRef mmod) {
+  if (amod.empty()) {
+    emitError() << "The target amod cannot be empty.";
+    return failure();
+  }
+  if (mmod.empty()) {
+    emitError() << "The target mmod cannot be empty.";
+    return failure();
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // SPIR-V Dialect
 //===----------------------------------------------------------------------===//
 
