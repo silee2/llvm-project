@@ -589,7 +589,7 @@ def ConvertGPUToSPIRV : Pass<"convert-gpu-to-spirv", "ModuleOp"> {
            " to lower GPU WMMA ops">,
     Option<"useOpenCL", "use-opencl",
            "bool", /*default=*/"false",
-           "Use OpenCL instead of Vulkan">
+           "Use OpenCL memory model">
   ];
 }
 

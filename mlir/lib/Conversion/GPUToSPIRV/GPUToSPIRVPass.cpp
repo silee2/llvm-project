@@ -57,8 +57,12 @@ void GPUToSPIRVPass::runOnOperation() {
   module.walk([&](gpu::GPUModuleOp moduleOp) {
     // Clone each GPU kernel module for conversion, given that the GPU
     // launch op still needs the original GPU kernel module.
+    // SPIRV module insertion point by is after original GPU module.
+    // This works fine for Vulkan shader that has a dedicated runner.
+    // But OpenCL kernel needs SPIRV module placed inside original GPU module as
+    // OpenCL uses GPU compilation pipeline.
     this->useOpenCL ? builder.setInsertionPoint(moduleOp.getBody(), moduleOp.getBody()->begin()) :
-    builder.setInsertionPoint(moduleOp.getOperation());
+        builder.setInsertionPoint(moduleOp.getOperation());
     gpuModules.push_back(builder.clone(*moduleOp.getOperation()));
   });
 
