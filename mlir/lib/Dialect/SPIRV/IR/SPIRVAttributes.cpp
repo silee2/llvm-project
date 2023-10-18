@@ -686,13 +686,13 @@ void SPIRVDialect::printAttribute(Attribute attr,
 //===----------------------------------------------------------------------===//
 LogicalResult
 SPIRVTargetAttr::verify(function_ref<InFlightDiagnostic()> emitError,
-                       StringRef amod, StringRef mmod) {
-  if (amod.empty()) {
-    emitError() << "The target amod cannot be empty.";
+                       StringRef addressingModel, StringRef memoryModel) {
+  if (addressingModel.empty()) {
+    emitError() << "The target addressing model cannot be empty.";
     return failure();
   }
-  if (mmod.empty()) {
-    emitError() << "The target mmod cannot be empty.";
+  if (memoryModel.empty()) {
+    emitError() << "The target memory model cannot be empty.";
     return failure();
   }
   return success();

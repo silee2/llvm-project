@@ -194,28 +194,36 @@ def GpuSPIRVAttachTarget: Pass<"spirv-attach-target", ""> {
     This pass searches for all GPU Modules in the immediate regions and attaches
     an SPIRV target if the module matches the name specified by the `module` argument.
 
+    Default addressing model is Physical16 and default memory model is OpenCL
+
     Example:
     ```
-    // File: in.mlir:
+    // File: in1.mlir:
     gpu.module @nvvm_module_1 {...}
     gpu.module @spirv_module_1 {...}
-    gpu.module @spirv_module_2 {...}
-    // mlir-opt --spirv-attach-target="module=spirv.* amod=Physical64 mmod=OpenCL" in.mlir
+    // mlir-opt --spirv-attach-target="module=spirv.* addressing=Physical64 memory=OpenCL" in1.mlir
     gpu.module @nvvm_module_1 {...}
-    gpu.module @spirv_module_1 [#spirv.target<amod = "Physical64", mmod = "OpenCL">] {...}
-    gpu.module @spirv_module_2 [#spirv.target<amod = "Physical64", mmod = "OpenCL">] {...}
+    // Note: Default option values do not print
+    gpu.module @spirv_module_1 [#spirv.target] {...}
+
+    // File: in2.mlir:
+    gpu.module @nvvm_module_2 {...}
+    gpu.module @spirv_module_2 {...}
+    // mlir-opt --spirv-attach-target="module=spirv.* addressing=Logical memory=GLSL450" in2.mlir
+    gpu.module @nvvm_module_2 {...}
+    gpu.module @spirv_module_2 [#spirv.target<addressing = "Logical", memory = "GLSL450">] {...}
     ```
   }];
   let options = [
     Option<"moduleMatcher", "module", "std::string",
            /*default=*/ [{""}],
            "Regex used to identify the modules to attach the target to.">,
-    Option<"addressModel", "amod", "std::string",
+    Option<"addressingModel", "addressing", "std::string",
            /*default=*/ "\"Physical64\"",
-           "Address model.">,
-    Option<"memoryModel", "mmod", "std::string",
+           "SPIRV Addressing Model.">,
+    Option<"memoryModel", "memory", "std::string",
            /*default=*/ "\"OpenCL\"",
-           "Memory model.">,
+           "SPIRV Memory Model.">,
   ];
 }
 

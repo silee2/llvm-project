@@ -45,7 +45,7 @@ struct SPIRVAttachTarget
 void SPIRVAttachTarget::runOnOperation() {
   OpBuilder builder(&getContext());
   auto target = builder.getAttr<SPIRVTargetAttr>(
-      addressModel, memoryModel);
+      addressingModel, memoryModel);
   llvm::Regex matcher(moduleMatcher);
   for (Region &region : getOperation()->getRegions())
     for (Block &block : region.getBlocks())
