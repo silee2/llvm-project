@@ -226,7 +226,7 @@ llvm::FunctionCallee llvm::LaunchKernel::getKernelLaunchFn() {
       FunctionType::get(
           voidTy,
           ArrayRef<Type *>({ptrTy, intPtrTy, intPtrTy, intPtrTy, intPtrTy,
-                            intPtrTy, intPtrTy, i32Ty, ptrTy, ptrTy, ptrTy}),
+                            intPtrTy, intPtrTy, i32Ty, ptrTy, ptrTy, ptrTy, i64Ty}),
           false));
 }
 
@@ -320,6 +320,8 @@ llvm::LaunchKernel::createKernelArgArray(mlir::gpu::LaunchFuncOp op) {
   return argArray;
 }
 
+#include <iostream>
+
 // Emits LLVM IR to launch a kernel function:
 // %0 = call %binarygetter
 // %1 = call %moduleLoad(%0)
@@ -383,6 +385,8 @@ llvm::LaunchKernel::createKernelLaunch(mlir::gpu::LaunchFuncOp op,
   //binary->
 
   llvm::Constant *paramsCount = llvm::ConstantInt::get(i64Ty, op.getNumKernelOperands());
+
+  std::cout << "Compilation format: " << static_cast<int32_t>(object.getFormat()) << std::endl;
 
   Value *moduleObject =
       object.getFormat() == gpu::CompilationTarget::Assembly
