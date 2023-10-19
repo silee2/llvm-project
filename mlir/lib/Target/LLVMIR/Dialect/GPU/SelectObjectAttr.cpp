@@ -23,6 +23,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/FormatVariadic.h"
 
+#include <iostream>
+
 using namespace mlir;
 
 namespace {
@@ -51,6 +53,10 @@ public:
 // Returns an identifier for the global string holding the binary.
 std::string getBinaryIdentifier(StringRef binaryName) {
   return binaryName.str() + "_bin_cst";
+}
+// Returns an identifier for the global int64 holding the binary size.
+std::string getBinarySizeIdentifier(StringRef binaryName) {
+  return binaryName.str() + "_bin_size_cst";
 }
 } // namespace
 
@@ -124,6 +130,18 @@ LogicalResult SelectObjectAttrImpl::embedBinary(
   serializedObj->setLinkage(llvm::GlobalValue::LinkageTypes::InternalLinkage);
   serializedObj->setAlignment(llvm::MaybeAlign(8));
   serializedObj->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
+
+  // Embed the object size as a global constant.
+  //std::cout << "Binary Size: " << object.getObject().size() << std::endl;
+  /*
+  llvm::Constant *binarySize = llvm::ConstantInt::get(builder.getInt64Ty(), object.getObject().size());
+  new llvm::GlobalVariable(*module, binarySize->getType(), true,
+                               llvm::GlobalValue::LinkageTypes::InternalLinkage,
+                               binarySize, getBinarySizeIdentifier(op.getName()));
+  serializedObj->setLinkage(llvm::GlobalValue::LinkageTypes::InternalLinkage);
+  serializedObj->setAlignment(llvm::MaybeAlign(8));
+  serializedObj->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
+  */
   return success();
 }
 
@@ -239,7 +257,7 @@ llvm::FunctionCallee llvm::LaunchKernel::getModuleFunctionFn() {
 llvm::FunctionCallee llvm::LaunchKernel::getModuleLoadFn() {
   return module.getOrInsertFunction(
       "mgpuModuleLoad",
-      FunctionType::get(ptrTy, ArrayRef<Type *>({ptrTy}), false));
+      FunctionType::get(ptrTy, ArrayRef<Type *>({ptrTy, i64Ty}), false));
 }
 
 llvm::FunctionCallee llvm::LaunchKernel::getModuleLoadJITFn() {
@@ -279,6 +297,8 @@ llvm::Value *llvm::LaunchKernel::getOrCreateFunctionName(StringRef moduleName,
       std::string(formatv("{0}_{1}_kernel_name", moduleName, kernelName));
 
   if (GlobalVariable *gv = module.getGlobalVariable(globalName))
+#include <iostream>
+
     return gv;
 
   return builder.CreateGlobalString(kernelName, globalName);
@@ -319,8 +339,6 @@ llvm::LaunchKernel::createKernelArgArray(mlir::gpu::LaunchFuncOp op) {
   }
   return argArray;
 }
-
-#include <iostream>
 
 // Emits LLVM IR to launch a kernel function:
 // %0 = call %binarygetter
@@ -381,17 +399,20 @@ llvm::LaunchKernel::createKernelLaunch(mlir::gpu::LaunchFuncOp op,
   if (!binary)
     return op.emitError() << "Couldn't find the binary: " << binaryIdentifier;
 
-  // Sang Ik: How do we get binary size? Need to pass it to module load
-  //binary->
-
   llvm::Constant *paramsCount = llvm::ConstantInt::get(i64Ty, op.getNumKernelOperands());
-
-  std::cout << "Compilation format: " << static_cast<int32_t>(object.getFormat()) << std::endl;
+  /*
+  std::string binarySizeIdentifier = getBinarySizeIdentifier(moduleName);
+  Value *binarySize = module.getGlobalVariable(binarySizeIdentifier, true);
+  if (!binarySize)
+    return op.emitError() << "Couldn't find the binary size: " << binarySizeIdentifier;
+  */
+  Value *binarySize = ConstantInt::get(i64Ty, 780);
+  //std::cout << "Compilation format: " << static_cast<int32_t>(object.getFormat()) << std::endl;
 
   Value *moduleObject =
       object.getFormat() == gpu::CompilationTarget::Assembly
           ? builder.CreateCall(getModuleLoadJITFn(), {binary, optV})
-          : builder.CreateCall(getModuleLoadFn(), {binary});
+          : builder.CreateCall(getModuleLoadFn(), {binary, binarySize});
 
   // Load the kernel function.
   Value *moduleFunction = builder.CreateCall(
