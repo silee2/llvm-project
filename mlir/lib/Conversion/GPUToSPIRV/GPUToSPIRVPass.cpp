@@ -17,6 +17,7 @@
 #include "mlir/Conversion/FuncToSPIRV/FuncToSPIRV.h"
 #include "mlir/Conversion/GPUToSPIRV/GPUToSPIRV.h"
 #include "mlir/Conversion/MemRefToSPIRV/MemRefToSPIRV.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVOps.h"
@@ -113,6 +114,23 @@ void GPUToSPIRVPass::runOnOperation() {
 
     if (failed(applyFullConversion(gpuModule, *target, std::move(patterns))))
       return signalPassFailure();
+  }
+  // In case of OpenCL, gpu.func in original gpu.module needs to replaced with
+  // an empty func.func with same arguments as gpu.func. And it also needs
+  // gpu.kernel attribute set.
+  if (this->useOpenCL) {
+    module.walk([&](gpu::GPUModuleOp moduleOp) {
+      moduleOp.walk([&](gpu::GPUFuncOp funcOp) {
+        builder.setInsertionPoint(funcOp);
+        auto newFuncOp = builder.create<func::FuncOp>(funcOp.getLoc(), funcOp.getName(), funcOp.getFunctionType());
+        auto entryBlock = newFuncOp.addEntryBlock();
+        builder.setInsertionPointToEnd(entryBlock);
+        builder.create<func::ReturnOp>(funcOp.getLoc());
+        newFuncOp->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
+                        builder.getUnitAttr());
+        funcOp.erase();
+      });
+    });
   }
 }
 
