@@ -172,6 +172,7 @@ private:
   IRBuilderBase &builder;
   mlir::LLVM::ModuleTranslation &moduleTranslation;
   Type *i32Ty{};
+  Type *i64Ty{};
   Type *voidTy{};
   Type *intPtrTy{};
   PointerType *ptrTy{};
@@ -213,6 +214,7 @@ llvm::LaunchKernel::LaunchKernel(
     mlir::LLVM::ModuleTranslation &moduleTranslation)
     : module(module), builder(builder), moduleTranslation(moduleTranslation) {
   i32Ty = builder.getInt32Ty();
+  i64Ty = builder.getInt64Ty();
   ptrTy = builder.getPtrTy(0);
   voidTy = builder.getVoidTy();
   intPtrTy = builder.getIntPtrTy(module.getDataLayout());
@@ -377,6 +379,11 @@ llvm::LaunchKernel::createKernelLaunch(mlir::gpu::LaunchFuncOp op,
   if (!binary)
     return op.emitError() << "Couldn't find the binary: " << binaryIdentifier;
 
+  // Sang Ik: How do we get binary size? Need to pass it to module load
+  //binary->
+
+  llvm::Constant *paramsCount = llvm::ConstantInt::get(i64Ty, op.getNumKernelOperands());
+
   Value *moduleObject =
       object.getFormat() == gpu::CompilationTarget::Assembly
           ? builder.CreateCall(getModuleLoadJITFn(), {binary, optV})
@@ -404,7 +411,7 @@ llvm::LaunchKernel::createKernelLaunch(mlir::gpu::LaunchFuncOp op,
   builder.CreateCall(
       getKernelLaunchFn(),
       ArrayRef<Value *>({moduleFunction, gx, gy, gz, bx, by, bz,
-                         dynamicMemorySize, stream, argArray, nullPtr}));
+                         dynamicMemorySize, stream, argArray, nullPtr, paramsCount}));
 
   // Sync & destroy the stream, for synchronous launches.
   if (handleStream) {
