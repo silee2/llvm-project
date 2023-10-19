@@ -23,8 +23,6 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/FormatVariadic.h"
 
-#include <iostream>
-
 using namespace mlir;
 
 namespace {
@@ -132,16 +130,14 @@ LogicalResult SelectObjectAttrImpl::embedBinary(
   serializedObj->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
 
   // Embed the object size as a global constant.
-  //std::cout << "Binary Size: " << object.getObject().size() << std::endl;
-  /*
   llvm::Constant *binarySize = llvm::ConstantInt::get(builder.getInt64Ty(), object.getObject().size());
-  new llvm::GlobalVariable(*module, binarySize->getType(), true,
+  llvm::GlobalVariable *serializedSize =
+      new llvm::GlobalVariable(*module, binarySize->getType(), true,
                                llvm::GlobalValue::LinkageTypes::InternalLinkage,
                                binarySize, getBinarySizeIdentifier(op.getName()));
-  serializedObj->setLinkage(llvm::GlobalValue::LinkageTypes::InternalLinkage);
-  serializedObj->setAlignment(llvm::MaybeAlign(8));
-  serializedObj->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
-  */
+  serializedSize->setLinkage(llvm::GlobalValue::LinkageTypes::InternalLinkage);
+  serializedSize->setAlignment(llvm::MaybeAlign(8));
+  serializedSize->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
   return success();
 }
 
@@ -297,8 +293,6 @@ llvm::Value *llvm::LaunchKernel::getOrCreateFunctionName(StringRef moduleName,
       std::string(formatv("{0}_{1}_kernel_name", moduleName, kernelName));
 
   if (GlobalVariable *gv = module.getGlobalVariable(globalName))
-#include <iostream>
-
     return gv;
 
   return builder.CreateGlobalString(kernelName, globalName);
@@ -400,14 +394,12 @@ llvm::LaunchKernel::createKernelLaunch(mlir::gpu::LaunchFuncOp op,
     return op.emitError() << "Couldn't find the binary: " << binaryIdentifier;
 
   llvm::Constant *paramsCount = llvm::ConstantInt::get(i64Ty, op.getNumKernelOperands());
-  /*
+
   std::string binarySizeIdentifier = getBinarySizeIdentifier(moduleName);
-  Value *binarySize = module.getGlobalVariable(binarySizeIdentifier, true);
-  if (!binarySize)
+  Value *binarySizeVar = module.getGlobalVariable(binarySizeIdentifier, true);
+  if (!binarySizeVar)
     return op.emitError() << "Couldn't find the binary size: " << binarySizeIdentifier;
-  */
-  Value *binarySize = ConstantInt::get(i64Ty, 780);
-  //std::cout << "Compilation format: " << static_cast<int32_t>(object.getFormat()) << std::endl;
+  Value* binarySize = dyn_cast<llvm::GlobalVariable>(binarySizeVar)->getInitializer();
 
   Value *moduleObject =
       object.getFormat() == gpu::CompilationTarget::Assembly
