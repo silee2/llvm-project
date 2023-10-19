@@ -24,7 +24,7 @@ void registerSPIRVTargetInterfaceExternalModels(DialectRegistry &registry);
 /// Registers the `TargetAttrInterface` for the `#spirv.target` attribute in the
 /// registry associated with the given context.
 void registerSPIRVTargetInterfaceExternalModels(MLIRContext &context);
-} // namespace SPIRV
+} // namespace spirv
 } // namespace mlir
 
 #endif // MLIR_TARGET_SPIRV_TARGET_H

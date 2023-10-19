@@ -825,7 +825,6 @@ LogicalResult ConvertAllocOpToGpuRuntimeCallPattern::matchAndRewrite(
   else if (!isShared && failed(isAsyncWithOneDependency(rewriter, allocOp)))
     return failure();
 
-
   // Get shape of the memref as values: static sizes are constant
   // values and dynamic sizes are passed to 'alloc' as operands.
   SmallVector<Value, 4> shape;

@@ -55,7 +55,7 @@ public:
 void mlir::spirv::registerSPIRVTargetInterfaceExternalModels(
     DialectRegistry &registry) {
   registry.addExtension(+[](MLIRContext *ctx, spirv::SPIRVDialect *dialect) {
-          spirv::SPIRVTargetAttr::attachInterface<SPIRVTargetAttrImpl>(*ctx);
+    spirv::SPIRVTargetAttr::attachInterface<SPIRVTargetAttrImpl>(*ctx);
   });
 }
 
@@ -67,9 +67,9 @@ void mlir::spirv::registerSPIRVTargetInterfaceExternalModels(
 }
 
 // Reuse from existing serializer
-std::optional<SmallVector<char, 0>>
-SPIRVTargetAttrImpl::serializeToObject(Attribute attribute, Operation *module,
-                                      const gpu::TargetOptions &options) const {
+std::optional<SmallVector<char, 0>> SPIRVTargetAttrImpl::serializeToObject(
+    Attribute attribute, Operation *module,
+    const gpu::TargetOptions &options) const {
   assert(module && "The module must be non null.");
   if (!module)
     return std::nullopt;
@@ -91,20 +91,19 @@ SPIRVTargetAttrImpl::serializeToObject(Attribute attribute, Operation *module,
 
   SmallVector<char, 0> spvData;
   const char *data = reinterpret_cast<const char *>(spvBinary.data());
-  for(uint32_t i = 0; i < spvBinary.size() * sizeof(uint32_t) ; i++) {
-      spvData.push_back(*(data + i));
+  for (uint32_t i = 0; i < spvBinary.size() * sizeof(uint32_t); i++) {
+    spvData.push_back(*(data + i));
   }
 
   spvMod.erase();
   return spvData;
 }
 
-
 // Prepare Attribute for gpu.binary with serialized kernel object
 Attribute
 SPIRVTargetAttrImpl::createObject(Attribute attribute,
-                                 const SmallVector<char, 0> &object,
-                                 const gpu::TargetOptions &options) const {
+                                  const SmallVector<char, 0> &object,
+                                  const gpu::TargetOptions &options) const {
   auto target = cast<SPIRVTargetAttr>(attribute);
   gpu::CompilationTarget format = options.getCompilationTarget();
   DictionaryAttr objectProps;

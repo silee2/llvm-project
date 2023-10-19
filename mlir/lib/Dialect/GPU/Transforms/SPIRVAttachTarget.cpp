@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the `GpuSPIRVAttachTarget` pass, attaching `#spirv.target`
-// attributes to GPU modules.
+// This file implements the `GpuSPIRVAttachTarget` pass, attaching
+// `#spirv.target` attributes to GPU modules.
 //
 //===----------------------------------------------------------------------===//
 
@@ -44,8 +44,7 @@ struct SPIRVAttachTarget
 
 void SPIRVAttachTarget::runOnOperation() {
   OpBuilder builder(&getContext());
-  auto target = builder.getAttr<SPIRVTargetAttr>(
-      addressingModel, memoryModel);
+  auto target = builder.getAttr<SPIRVTargetAttr>(addressingModel, memoryModel);
   llvm::Regex matcher(moduleMatcher);
   for (Region &region : getOperation()->getRegions())
     for (Block &block : region.getBlocks())

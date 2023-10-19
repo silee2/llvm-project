@@ -130,11 +130,12 @@ LogicalResult SelectObjectAttrImpl::embedBinary(
   serializedObj->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
 
   // Embed the object size as a global constant.
-  llvm::Constant *binarySize = llvm::ConstantInt::get(builder.getInt64Ty(), object.getObject().size());
-  llvm::GlobalVariable *serializedSize =
-      new llvm::GlobalVariable(*module, binarySize->getType(), true,
-                               llvm::GlobalValue::LinkageTypes::InternalLinkage,
-                               binarySize, getBinarySizeIdentifier(op.getName()));
+  llvm::Constant *binarySize =
+      llvm::ConstantInt::get(builder.getInt64Ty(), object.getObject().size());
+  llvm::GlobalVariable *serializedSize = new llvm::GlobalVariable(
+      *module, binarySize->getType(), true,
+      llvm::GlobalValue::LinkageTypes::InternalLinkage, binarySize,
+      getBinarySizeIdentifier(op.getName()));
   serializedSize->setLinkage(llvm::GlobalValue::LinkageTypes::InternalLinkage);
   serializedSize->setAlignment(llvm::MaybeAlign(8));
   serializedSize->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
@@ -237,11 +238,11 @@ llvm::LaunchKernel::LaunchKernel(
 llvm::FunctionCallee llvm::LaunchKernel::getKernelLaunchFn() {
   return module.getOrInsertFunction(
       "mgpuLaunchKernel",
-      FunctionType::get(
-          voidTy,
-          ArrayRef<Type *>({ptrTy, intPtrTy, intPtrTy, intPtrTy, intPtrTy,
-                            intPtrTy, intPtrTy, i32Ty, ptrTy, ptrTy, ptrTy, i64Ty}),
-          false));
+      FunctionType::get(voidTy,
+                        ArrayRef<Type *>({ptrTy, intPtrTy, intPtrTy, intPtrTy,
+                                          intPtrTy, intPtrTy, intPtrTy, i32Ty,
+                                          ptrTy, ptrTy, ptrTy, i64Ty}),
+                        false));
 }
 
 llvm::FunctionCallee llvm::LaunchKernel::getModuleFunctionFn() {
@@ -393,13 +394,16 @@ llvm::LaunchKernel::createKernelLaunch(mlir::gpu::LaunchFuncOp op,
   if (!binary)
     return op.emitError() << "Couldn't find the binary: " << binaryIdentifier;
 
-  llvm::Constant *paramsCount = llvm::ConstantInt::get(i64Ty, op.getNumKernelOperands());
+  llvm::Constant *paramsCount =
+      llvm::ConstantInt::get(i64Ty, op.getNumKernelOperands());
 
   std::string binarySizeIdentifier = getBinarySizeIdentifier(moduleName);
   Value *binarySizeVar = module.getGlobalVariable(binarySizeIdentifier, true);
   if (!binarySizeVar)
-    return op.emitError() << "Couldn't find the binary size: " << binarySizeIdentifier;
-  Value* binarySize = dyn_cast<llvm::GlobalVariable>(binarySizeVar)->getInitializer();
+    return op.emitError() << "Couldn't find the binary size: "
+                          << binarySizeIdentifier;
+  Value *binarySize =
+      dyn_cast<llvm::GlobalVariable>(binarySizeVar)->getInitializer();
 
   Value *moduleObject =
       object.getFormat() == gpu::CompilationTarget::Assembly
@@ -425,10 +429,10 @@ llvm::LaunchKernel::createKernelLaunch(mlir::gpu::LaunchFuncOp op,
 
   // Create the launch call.
   Value *nullPtr = ConstantPointerNull::get(ptrTy);
-  builder.CreateCall(
-      getKernelLaunchFn(),
-      ArrayRef<Value *>({moduleFunction, gx, gy, gz, bx, by, bz,
-                         dynamicMemorySize, stream, argArray, nullPtr, paramsCount}));
+  builder.CreateCall(getKernelLaunchFn(),
+                     ArrayRef<Value *>({moduleFunction, gx, gy, gz, bx, by, bz,
+                                        dynamicMemorySize, stream, argArray,
+                                        nullPtr, paramsCount}));
 
   // Sync & destroy the stream, for synchronous launches.
   if (handleStream) {

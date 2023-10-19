@@ -62,8 +62,9 @@ void GPUToSPIRVPass::runOnOperation() {
     // This works fine for Vulkan shader that has a dedicated runner.
     // But OpenCL kernel needs SPIRV module placed inside original GPU module as
     // OpenCL uses GPU compilation pipeline.
-    this->useOpenCL ? builder.setInsertionPoint(moduleOp.getBody(), moduleOp.getBody()->begin()) :
-        builder.setInsertionPoint(moduleOp.getOperation());
+    this->useOpenCL ? builder.setInsertionPoint(moduleOp.getBody(),
+                                                moduleOp.getBody()->begin())
+                    : builder.setInsertionPoint(moduleOp.getOperation());
     gpuModules.push_back(builder.clone(*moduleOp.getOperation()));
   });
 
@@ -75,8 +76,8 @@ void GPUToSPIRVPass::runOnOperation() {
       std::unique_ptr<ConversionTarget> target =
           spirv::getMemorySpaceToStorageClassTarget(*context);
       spirv::MemorySpaceToStorageClassMap memorySpaceMap =
-          this->useOpenCL ? spirv::mapMemorySpaceToOpenCLStorageClass :
-              spirv::mapMemorySpaceToVulkanStorageClass;
+          this->useOpenCL ? spirv::mapMemorySpaceToOpenCLStorageClass
+                          : spirv::mapMemorySpaceToVulkanStorageClass;
       spirv::MemorySpaceToStorageClassConverter converter(memorySpaceMap);
 
       RewritePatternSet patterns(context);
@@ -122,12 +123,13 @@ void GPUToSPIRVPass::runOnOperation() {
     module.walk([&](gpu::GPUModuleOp moduleOp) {
       moduleOp.walk([&](gpu::GPUFuncOp funcOp) {
         builder.setInsertionPoint(funcOp);
-        auto newFuncOp = builder.create<func::FuncOp>(funcOp.getLoc(), funcOp.getName(), funcOp.getFunctionType());
+        auto newFuncOp = builder.create<func::FuncOp>(
+            funcOp.getLoc(), funcOp.getName(), funcOp.getFunctionType());
         auto entryBlock = newFuncOp.addEntryBlock();
         builder.setInsertionPointToEnd(entryBlock);
         builder.create<func::ReturnOp>(funcOp.getLoc());
         newFuncOp->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-                        builder.getUnitAttr());
+                           builder.getUnitAttr());
         funcOp.erase();
       });
     });
