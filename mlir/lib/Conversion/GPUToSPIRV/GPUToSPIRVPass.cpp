@@ -79,7 +79,8 @@ void GPUToSPIRVPass::runOnOperation() {
     options.use64bitIndex = this->use64bitIndex;
     SPIRVTypeConverter typeConverter(targetAttr, options);
     const spirv::TargetEnv &targetEnv = typeConverter.getTargetEnv();
-    FailureOr<spirv::MemoryModel> memoryModel = spirv::getMemoryModel(targetEnv);
+    FailureOr<spirv::MemoryModel> memoryModel =
+        spirv::getMemoryModel(targetEnv);
     if (failed(memoryModel))
       return signalPassFailure();
 
@@ -88,8 +89,9 @@ void GPUToSPIRVPass::runOnOperation() {
       std::unique_ptr<ConversionTarget> target =
           spirv::getMemorySpaceToStorageClassTarget(*context);
       spirv::MemorySpaceToStorageClassMap memorySpaceMap =
-          (memoryModel == spirv::MemoryModel::OpenCL) ? spirv::mapMemorySpaceToOpenCLStorageClass
-                          : spirv::mapMemorySpaceToVulkanStorageClass;
+          (memoryModel == spirv::MemoryModel::OpenCL)
+              ? spirv::mapMemorySpaceToOpenCLStorageClass
+              : spirv::mapMemorySpaceToVulkanStorageClass;
       spirv::MemorySpaceToStorageClassConverter converter(memorySpaceMap);
 
       RewritePatternSet patterns(context);
@@ -125,7 +127,7 @@ void GPUToSPIRVPass::runOnOperation() {
   // an empty func.func with same arguments as gpu.func. And it also needs
   // gpu.kernel attribute set.
   module.walk([&](gpu::GPUModuleOp moduleOp) {
-    Operation* gpuModule = moduleOp.getOperation();
+    Operation *gpuModule = moduleOp.getOperation();
     auto targetAttr = spirv::lookupTargetEnvOrDefault(gpuModule);
     std::unique_ptr<ConversionTarget> target =
         SPIRVConversionTarget::get(targetAttr);
@@ -134,7 +136,8 @@ void GPUToSPIRVPass::runOnOperation() {
     options.use64bitIndex = this->use64bitIndex;
     SPIRVTypeConverter typeConverter(targetAttr, options);
     const spirv::TargetEnv &targetEnv = typeConverter.getTargetEnv();
-    FailureOr<spirv::MemoryModel> memoryModel = spirv::getMemoryModel(targetEnv);
+    FailureOr<spirv::MemoryModel> memoryModel =
+        spirv::getMemoryModel(targetEnv);
     if (failed(memoryModel))
       return signalPassFailure();
     if (memoryModel == spirv::MemoryModel::OpenCL) {
@@ -146,7 +149,7 @@ void GPUToSPIRVPass::runOnOperation() {
         builder.setInsertionPointToEnd(entryBlock);
         builder.create<func::ReturnOp>(funcOp.getLoc());
         newFuncOp->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-                            builder.getUnitAttr());
+                           builder.getUnitAttr());
         funcOp.erase();
       });
     }
