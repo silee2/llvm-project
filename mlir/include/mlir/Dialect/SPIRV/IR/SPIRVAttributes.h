@@ -21,7 +21,7 @@ namespace mlir {
 namespace spirv {
 class VerCapExtAttr;
 }
-}
+} // namespace mlir
 
 // Pull in TableGen'erated SPIR-V attribute definitions for target and ABI.
 #define GET_ATTRDEF_CLASSES

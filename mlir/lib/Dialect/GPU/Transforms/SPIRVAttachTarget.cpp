@@ -44,24 +44,23 @@ struct SPIRVAttachTarget
 
 void SPIRVAttachTarget::runOnOperation() {
   OpBuilder builder(&getContext());
-  if(!symbolizeVersion(spirvVersion))
-      ;
+  if (!symbolizeVersion(spirvVersion))
+    ;
 
   Version version = symbolizeVersion(spirvVersion).value();
   SmallVector<Capability, 4> capabilities;
   SmallVector<Extension, 8> extensions;
   for (auto cap : spirvCapabilities) {
-      if(symbolizeCapability(cap))
-          capabilities.push_back(symbolizeCapability(cap).value());
+    if (symbolizeCapability(cap))
+      capabilities.push_back(symbolizeCapability(cap).value());
   }
   ArrayRef<Capability> caps(capabilities);
   for (auto ext : spirvExtensions) {
-      if(symbolizeCapability(ext))
-          extensions.push_back(symbolizeExtension(ext).value());
+    if (symbolizeCapability(ext))
+      extensions.push_back(symbolizeExtension(ext).value());
   }
   ArrayRef<Extension> exts(extensions);
-  VerCapExtAttr vce = VerCapExtAttr::get(version, caps, exts,
-                             &getContext());
+  VerCapExtAttr vce = VerCapExtAttr::get(version, caps, exts, &getContext());
   auto target = builder.getAttr<SPIRVTargetAttr>(vce);
   llvm::Regex matcher(moduleMatcher);
   for (Region &region : getOperation()->getRegions())
