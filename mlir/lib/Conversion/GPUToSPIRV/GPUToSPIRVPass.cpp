@@ -75,9 +75,10 @@ void GPUToSPIRVPass::runOnOperation() {
         spirv::getMemoryModel(targetEnv);
     if (failed(memoryModel))
       return signalPassFailure();
-    (memoryModel == spirv::MemoryModel::OpenCL) ? builder.setInsertionPoint(moduleOp.getBody(),
-                                                moduleOp.getBody()->begin())
-                    : builder.setInsertionPoint(moduleOp.getOperation());
+    (memoryModel == spirv::MemoryModel::OpenCL)
+        ? builder.setInsertionPoint(moduleOp.getBody(),
+                                    moduleOp.getBody()->begin())
+        : builder.setInsertionPoint(moduleOp.getOperation());
     gpuModules.push_back(builder.clone(*moduleOp.getOperation()));
   });
 
