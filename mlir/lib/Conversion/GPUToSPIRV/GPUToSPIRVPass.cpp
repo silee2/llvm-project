@@ -49,6 +49,22 @@ private:
   bool mapMemorySpace;
 };
 
+static SPIRVTypeConverter getTypeConverterFromOperation(Operation *gpuModule) {
+    auto targetAttr = spirv::lookupTargetEnvOrDefault(gpuModule);
+    std::unique_ptr<ConversionTarget> target =
+        SPIRVConversionTarget::get(targetAttr);
+
+    SPIRVConversionOptions options;
+    options.use64bitIndex = this->use64bitIndex;
+    SPIRVTypeConverter typeConverter(targetAttr, options);
+    return typeConverter;
+}
+
+static SPIRVTypeConverter getTypeConverterFromGPUModuleOp(gpu::GPUModuleOp moduleOp) {
+    Operation *gpuModule = moduleOp.getOperation();
+    return getTypeConverterFromOperation(gpuModule);
+}
+
 void GPUToSPIRVPass::runOnOperation() {
   MLIRContext *context = &getContext();
   ModuleOp module = getOperation();
@@ -62,14 +78,7 @@ void GPUToSPIRVPass::runOnOperation() {
     // This works fine for Vulkan shader that has a dedicated runner.
     // But OpenCL kernel needs SPIRV module placed inside original GPU module as
     // OpenCL uses GPU compilation pipeline.
-    Operation *gpuModule = moduleOp.getOperation();
-    auto targetAttr = spirv::lookupTargetEnvOrDefault(gpuModule);
-    std::unique_ptr<ConversionTarget> target =
-        SPIRVConversionTarget::get(targetAttr);
-
-    SPIRVConversionOptions options;
-    options.use64bitIndex = this->use64bitIndex;
-    SPIRVTypeConverter typeConverter(targetAttr, options);
+    SPIRVTypeConverter typeConverter = getTypeConverterFromGPUModuleOp(moduleOp);
     const spirv::TargetEnv &targetEnv = typeConverter.getTargetEnv();
     FailureOr<spirv::MemoryModel> memoryModel =
         spirv::getMemoryModel(targetEnv);
@@ -85,13 +94,7 @@ void GPUToSPIRVPass::runOnOperation() {
   // Run conversion for each module independently as they can have different
   // TargetEnv attributes.
   for (Operation *gpuModule : gpuModules) {
-    auto targetAttr = spirv::lookupTargetEnvOrDefault(gpuModule);
-    std::unique_ptr<ConversionTarget> target =
-        SPIRVConversionTarget::get(targetAttr);
-
-    SPIRVConversionOptions options;
-    options.use64bitIndex = this->use64bitIndex;
-    SPIRVTypeConverter typeConverter(targetAttr, options);
+    SPIRVTypeConverter typeConverter = getTypeConverterFromOperation(gpuModule);
     const spirv::TargetEnv &targetEnv = typeConverter.getTargetEnv();
     FailureOr<spirv::MemoryModel> memoryModel =
         spirv::getMemoryModel(targetEnv);
@@ -141,13 +144,7 @@ void GPUToSPIRVPass::runOnOperation() {
   // an empty func.func with same arguments as gpu.func. And it also needs
   // gpu.kernel attribute set.
   module.walk([&](gpu::GPUModuleOp moduleOp) {
-    Operation *gpuModule = moduleOp.getOperation();
-    auto targetAttr = spirv::lookupTargetEnvOrDefault(gpuModule);
-    std::unique_ptr<ConversionTarget> target =
-        SPIRVConversionTarget::get(targetAttr);
-
-    SPIRVConversionOptions options;
-    options.use64bitIndex = this->use64bitIndex;
+    SPIRVTypeConverter typeConverter = getTypeConverterFromGPUModuleOp(moduleOp);
     SPIRVTypeConverter typeConverter(targetAttr, options);
     const spirv::TargetEnv &targetEnv = typeConverter.getTargetEnv();
     FailureOr<spirv::MemoryModel> memoryModel =
