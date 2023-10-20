@@ -194,24 +194,14 @@ def GpuSPIRVAttachTarget: Pass<"spirv-attach-target", ""> {
     This pass searches for all GPU Modules in the immediate regions and attaches
     an SPIRV target if the module matches the name specified by the `module` argument.
 
-    Default addressing model is Physical16 and default memory model is OpenCL
-
     Example:
     ```
     // File: in1.mlir:
     gpu.module @nvvm_module_1 {...}
     gpu.module @spirv_module_1 {...}
-    // mlir-opt --spirv-attach-target="module=spirv.* addressing=Physical64 memory=OpenCL" in1.mlir
+    // mlir-opt --spirv-attach-target="module=spirv.* ver=v1.0 caps=Kernel" in1.mlir
     gpu.module @nvvm_module_1 {...}
-    // Note: Default option values do not print
-    gpu.module @spirv_module_1 [#spirv.target] {...}
-
-    // File: in2.mlir:
-    gpu.module @nvvm_module_2 {...}
-    gpu.module @spirv_module_2 {...}
-    // mlir-opt --spirv-attach-target="module=spirv.* addressing=Logical memory=GLSL450" in2.mlir
-    gpu.module @nvvm_module_2 {...}
-    gpu.module @spirv_module_2 [#spirv.target<addressing = "Logical", memory = "GLSL450">] {...}
+    gpu.module @spirv_module_1 [#spirv.target<vce = #spirv.vce<v1.0, [Kernel], []>, resource_limits = <>>] {...}
     ```
   }];
   let options = [
