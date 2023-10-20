@@ -218,12 +218,13 @@ def GpuSPIRVAttachTarget: Pass<"spirv-attach-target", ""> {
     Option<"moduleMatcher", "module", "std::string",
            /*default=*/ [{""}],
            "Regex used to identify the modules to attach the target to.">,
-    Option<"addressingModel", "addressing", "std::string",
-           /*default=*/ "\"Physical64\"",
+    Option<"spirvVersion", "ver", "std::string",
+           /*default=*/ "\"v1.0\"",
            "SPIRV Addressing Model.">,
-    Option<"memoryModel", "memory", "std::string",
-           /*default=*/ "\"OpenCL\"",
-           "SPIRV Memory Model.">,
+    ListOption<"spirvCapabilities", "caps", "std::string",
+           "List of required SPIRV Capabilities">,
+    ListOption<"spirvExtensions", "exts", "std::string",
+           "List of required SPIRV Extensions">,
   ];
 }
 
