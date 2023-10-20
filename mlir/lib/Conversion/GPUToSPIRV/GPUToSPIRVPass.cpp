@@ -62,7 +62,20 @@ void GPUToSPIRVPass::runOnOperation() {
     // This works fine for Vulkan shader that has a dedicated runner.
     // But OpenCL kernel needs SPIRV module placed inside original GPU module as
     // OpenCL uses GPU compilation pipeline.
-    this->useOpenCL ? builder.setInsertionPoint(moduleOp.getBody(),
+    Operation *gpuModule = moduleOp.getOperation();
+    auto targetAttr = spirv::lookupTargetEnvOrDefault(gpuModule);
+    std::unique_ptr<ConversionTarget> target =
+        SPIRVConversionTarget::get(targetAttr);
+
+    SPIRVConversionOptions options;
+    options.use64bitIndex = this->use64bitIndex;
+    SPIRVTypeConverter typeConverter(targetAttr, options);
+    const spirv::TargetEnv &targetEnv = typeConverter.getTargetEnv();
+    FailureOr<spirv::MemoryModel> memoryModel =
+        spirv::getMemoryModel(targetEnv);
+    if (failed(memoryModel))
+      return signalPassFailure();
+    (memoryModel == spirv::MemoryModel::OpenCL) ? builder.setInsertionPoint(moduleOp.getBody(),
                                                 moduleOp.getBody()->begin())
                     : builder.setInsertionPoint(moduleOp.getOperation());
     gpuModules.push_back(builder.clone(*moduleOp.getOperation()));

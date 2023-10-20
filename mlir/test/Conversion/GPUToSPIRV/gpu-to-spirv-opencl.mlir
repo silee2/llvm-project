@@ -1,4 +1,4 @@
-// RUN: mlir-opt -convert-gpu-to-spirv='use-64bit-index=true use-opencl=true' %s -o - | FileCheck %s
+// RUN: mlir-opt -convert-gpu-to-spirv='use-64bit-index=true' %s -o - | FileCheck %s
 
 module attributes {
   gpu.container_module,
