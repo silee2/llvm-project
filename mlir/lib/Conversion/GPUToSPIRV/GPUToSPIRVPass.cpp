@@ -71,12 +71,24 @@ void GPUToSPIRVPass::runOnOperation() {
   // Run conversion for each module independently as they can have different
   // TargetEnv attributes.
   for (Operation *gpuModule : gpuModules) {
+    auto targetAttr = spirv::lookupTargetEnvOrDefault(gpuModule);
+    std::unique_ptr<ConversionTarget> target =
+        SPIRVConversionTarget::get(targetAttr);
+
+    SPIRVConversionOptions options;
+    options.use64bitIndex = this->use64bitIndex;
+    SPIRVTypeConverter typeConverter(targetAttr, options);
+    const spirv::TargetEnv &targetEnv = typeConverter.getTargetEnv();
+    FailureOr<spirv::MemoryModel> memoryModel = spirv::getMemoryModel(targetEnv);
+    if (failed(memoryModel))
+      return signalPassFailure();
+
     // Map MemRef memory space to SPIR-V storage class first if requested.
     if (mapMemorySpace) {
       std::unique_ptr<ConversionTarget> target =
           spirv::getMemorySpaceToStorageClassTarget(*context);
       spirv::MemorySpaceToStorageClassMap memorySpaceMap =
-          this->useOpenCL ? spirv::mapMemorySpaceToOpenCLStorageClass
+          (memoryModel == spirv::MemoryModel::OpenCL) ? spirv::mapMemorySpaceToOpenCLStorageClass
                           : spirv::mapMemorySpaceToVulkanStorageClass;
       spirv::MemorySpaceToStorageClassConverter converter(memorySpaceMap);
 
@@ -87,13 +99,6 @@ void GPUToSPIRVPass::runOnOperation() {
         return signalPassFailure();
     }
 
-    auto targetAttr = spirv::lookupTargetEnvOrDefault(gpuModule);
-    std::unique_ptr<ConversionTarget> target =
-        SPIRVConversionTarget::get(targetAttr);
-
-    SPIRVConversionOptions options;
-    options.use64bitIndex = this->use64bitIndex;
-    SPIRVTypeConverter typeConverter(targetAttr, options);
     populateMMAToSPIRVCoopMatrixTypeConversion(typeConverter,
                                                this->useCoopMatrixNV);
 
@@ -119,8 +124,20 @@ void GPUToSPIRVPass::runOnOperation() {
   // In case of OpenCL, gpu.func in original gpu.module needs to replaced with
   // an empty func.func with same arguments as gpu.func. And it also needs
   // gpu.kernel attribute set.
-  if (this->useOpenCL) {
-    module.walk([&](gpu::GPUModuleOp moduleOp) {
+  module.walk([&](gpu::GPUModuleOp moduleOp) {
+    Operation* gpuModule = moduleOp.getOperation();
+    auto targetAttr = spirv::lookupTargetEnvOrDefault(gpuModule);
+    std::unique_ptr<ConversionTarget> target =
+        SPIRVConversionTarget::get(targetAttr);
+
+    SPIRVConversionOptions options;
+    options.use64bitIndex = this->use64bitIndex;
+    SPIRVTypeConverter typeConverter(targetAttr, options);
+    const spirv::TargetEnv &targetEnv = typeConverter.getTargetEnv();
+    FailureOr<spirv::MemoryModel> memoryModel = spirv::getMemoryModel(targetEnv);
+    if (failed(memoryModel))
+      return signalPassFailure();
+    if (memoryModel == spirv::MemoryModel::OpenCL) {
       moduleOp.walk([&](gpu::GPUFuncOp funcOp) {
         builder.setInsertionPoint(funcOp);
         auto newFuncOp = builder.create<func::FuncOp>(
@@ -129,11 +146,11 @@ void GPUToSPIRVPass::runOnOperation() {
         builder.setInsertionPointToEnd(entryBlock);
         builder.create<func::ReturnOp>(funcOp.getLoc());
         newFuncOp->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-                           builder.getUnitAttr());
+                            builder.getUnitAttr());
         funcOp.erase();
       });
-    });
-  }
+    }
+  });
 }
 
 } // namespace
