@@ -16,6 +16,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVAttributes.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
+#include "mlir/Dialect/SPIRV/IR/TargetAndABI.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Target/SPIRV/Target.h"
@@ -45,7 +46,7 @@ struct SPIRVAttachTarget
 void SPIRVAttachTarget::runOnOperation() {
   OpBuilder builder(&getContext());
   if (!symbolizeVersion(spirvVersion))
-    ;
+    return signalPassFailure();
 
   Version version = symbolizeVersion(spirvVersion).value();
   SmallVector<Capability, 4> capabilities;
@@ -61,7 +62,7 @@ void SPIRVAttachTarget::runOnOperation() {
   }
   ArrayRef<Extension> exts(extensions);
   VerCapExtAttr vce = VerCapExtAttr::get(version, caps, exts, &getContext());
-  auto target = builder.getAttr<SPIRVTargetAttr>(vce);
+  auto target = builder.getAttr<SPIRVTargetAttr>(vce, getDefaultResourceLimits(&getContext()), ClientAPI::Unknown, Vendor::Unknown, DeviceType::Unknown, TargetEnvAttr::kUnknownDeviceID);
   llvm::Regex matcher(moduleMatcher);
   for (Region &region : getOperation()->getRegions())
     for (Block &block : region.getBlocks())
