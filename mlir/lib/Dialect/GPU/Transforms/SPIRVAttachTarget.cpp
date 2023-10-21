@@ -69,8 +69,10 @@ void SPIRVAttachTarget::runOnOperation() {
   ArrayRef<Extension> exts(extensions);
   VerCapExtAttr vce = VerCapExtAttr::get(version, caps, exts, &getContext());
   auto target = builder.getAttr<SPIRVTargetAttr>(
-      vce, getDefaultResourceLimits(&getContext()), symbolizeClientAPI(clientApi).value(),
-      symbolizeVendor(deviceVendor).value(), symbolizeDeviceType(deviceType).value(), deviceId);
+      vce, getDefaultResourceLimits(&getContext()),
+      symbolizeClientAPI(clientApi).value(),
+      symbolizeVendor(deviceVendor).value(),
+      symbolizeDeviceType(deviceType).value(), deviceId);
   llvm::Regex matcher(moduleMatcher);
   for (Region &region : getOperation()->getRegions())
     for (Block &block : region.getBlocks())
