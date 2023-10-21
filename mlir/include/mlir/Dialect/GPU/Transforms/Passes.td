@@ -215,6 +215,18 @@ def GpuSPIRVAttachTarget: Pass<"spirv-attach-target", ""> {
            "List of required SPIRV Capabilities">,
     ListOption<"spirvExtensions", "exts", "std::string",
            "List of required SPIRV Extensions">,
+    Option<"clientApi", "client_api", "std::string",
+           /*default=*/ "\"Unknown\"",
+           "Client API">,
+    Option<"deviceVendor", "vendor", "std::string",
+           /*default=*/ "\"Unknown\"",
+           "Device Vendor">,
+    Option<"deviceType", "device_type", "std::string",
+           /*default=*/ "\"Unknown\"",
+           "Device Type">,
+    Option<"deviceId", "device_id", "uint32_t",
+           /*default=*/ "mlir::spirv::TargetEnvAttr::kUnknownDeviceID",
+           "Device ID">,
   ];
 }
 
