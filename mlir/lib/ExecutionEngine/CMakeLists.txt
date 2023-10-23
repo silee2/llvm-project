@@ -364,4 +364,50 @@ if(LLVM_ENABLE_PIC)
 
     set_property(TARGET mlir_sycl_runtime APPEND PROPERTY BUILD_RPATH "${LevelZero_LIBRARIES_DIR}" "${SyclRuntime_LIBRARIES_DIR}")
   endif()
+
+  if(MLIR_ENABLE_OPENCL_RUNNER)
+    find_package(OpenCL)
+    # Intel does not distribute OpenCL SDK separately since 2020 and bundles it with DPC++ Compiler.
+    # Header and Libraries are not standard location needs the custom searching.
+    if(NOT OpenCL_FOUND)
+      if(NOT DEFINED ENV{CMPLR_ROOT})
+        message(FATAL_ERROR "OpenCL not found.")
+      else()
+        # Set SDK root path for Linux and Windows
+        if(LINUX OR (${CMAKE_SYSTEM_NAME} MATCHES "Linux"))
+            set(DEV_ROOT "$ENV{CMPLR_ROOT}/linux")
+        elseif(WIN32)
+            set(DEV_ROOT "$ENV{CMPLR_ROOT}/windows")
+        endif()
+
+        # Find custom path for OpenCL_INCLUDE_DIR and OpenCL_LIBRARY
+        find_path(OpenCL_INCLUDE_DIR REQUIRED
+            NAMES
+                CL/cl.h OpenCL/cl.h
+            PATHS
+                ${DEV_ROOT}
+            PATH_SUFFIXES
+                include/sycl
+            )
+
+        find_library(OpenCL_LIBRARY REQUIRED
+            NAMES OpenCL
+            PATHS
+                ${DEV_ROOT}
+            PATH_SUFFIXES
+                lib)
+
+        # Clear cached variables for OpenCL version checking.
+        foreach(VERSION "3_0" "2_2" "2_1" "2_0" "1_2" "1_1" "1_0")
+            unset(OPENCL_VERSION_${VERSION} CACHE)
+        endforeach()
+
+        find_package(OpenCL REQUIRED)
+      endif()
+    endif()
+
+    target_link_libraries(mlir_opencl_runtime PRIVATE OpenCL::OpenCL)
+
+    set_property(TARGET mlir_opencl_runtime APPEND PROPERTY BUILD_RPATH "${OpenCL_LIBRARY}")
+  endif()
 endif()
