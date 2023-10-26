@@ -9,6 +9,7 @@ set(LLVM_OPTIONAL_SOURCES
   SyclRuntimeWrappers.cpp
   ExecutionEngine.cpp
   Float16bits.cpp
+  OpenCLRuntimeWrappers.cpp
   RocmRuntimeWrappers.cpp
   RunnerUtils.cpp
   OptUtils.cpp
@@ -366,7 +367,7 @@ if(LLVM_ENABLE_PIC)
   endif()
 
   if(MLIR_ENABLE_OPENCL_RUNNER)
-    find_package(OpenCL)
+    find_package(OpenCL 3.0)
     # Intel does not distribute OpenCL SDK separately since 2020 and bundles it with DPC++ Compiler.
     # Header and Libraries are not standard location needs the custom searching.
     if(NOT OpenCL_FOUND)
@@ -405,6 +406,13 @@ if(LLVM_ENABLE_PIC)
         find_package(OpenCL REQUIRED)
       endif()
     endif()
+
+    add_mlir_library(mlir_opencl_runtime
+      SHARED
+      OpenCLRuntimeWrappers.cpp
+
+      EXCLUDE_FROM_LIBMLIR
+    )
 
     target_link_libraries(mlir_opencl_runtime PRIVATE OpenCL::OpenCL)
 
