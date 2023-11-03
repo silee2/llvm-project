@@ -6,26 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Implements C wrappers around the sycl runtime library.
+// Implements wrappers around the sycl runtime library with C linkage
 //
 //===----------------------------------------------------------------------===//
 
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <cassert>
-#include <cfloat>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <stdexcept>
-#include <tuple>
-#include <vector>
-
 #include <CL/sycl.hpp>
 #include <level_zero/ze_api.h>
-#include <map>
-#include <mutex>
 #include <sycl/ext/oneapi/backend/level_zero.hpp>
 
 #ifdef _WIN32
@@ -88,13 +74,7 @@ static sycl::context getDefaultContext() {
   return syclContext;
 }
 
-struct QUEUE {
-  sycl::queue syclQueue_;
-
-  QUEUE() { syclQueue_ = sycl::queue(getDefaultContext(), getDefaultDevice()); }
-};
-
-static void *allocDeviceMemory(QUEUE *queue, size_t size, bool isShared) {
+static void *allocDeviceMemory(sycl::queue *queue, size_t size, bool isShared) {
   void *memPtr = nullptr;
   if (isShared) {
     memPtr = sycl::aligned_alloc_shared(64, size, getDefaultDevice(),
@@ -109,8 +89,8 @@ static void *allocDeviceMemory(QUEUE *queue, size_t size, bool isShared) {
   return memPtr;
 }
 
-static void deallocDeviceMemory(QUEUE *queue, void *ptr) {
-  sycl::free(ptr, queue->syclQueue_);
+static void deallocDeviceMemory(sycl::queue *queue, void *ptr) {
+  sycl::free(ptr, *queue);
 }
 
 static ze_module_handle_t loadModule(const void *data, size_t dataSize) {
@@ -135,7 +115,6 @@ static sycl::kernel *getKernel(ze_module_handle_t zeModule, const char *name) {
   assert(zeModule);
   assert(name);
   ze_kernel_handle_t zeKernel;
-  sycl::kernel *syclKernel;
   ze_kernel_desc_t desc = {};
   desc.pKernelName = name;
 
@@ -147,11 +126,10 @@ static sycl::kernel *getKernel(ze_module_handle_t zeModule, const char *name) {
 
   auto kernel = sycl::make_kernel<sycl::backend::ext_oneapi_level_zero>(
       {kernelBundle, zeKernel}, getDefaultContext());
-  syclKernel = new sycl::kernel(kernel);
-  return syclKernel;
+  return new sycl::kernel(kernel);
 }
 
-static void launchKernel(QUEUE *queue, sycl::kernel *kernel, size_t gridX,
+static void launchKernel(sycl::queue *queue, sycl::kernel *kernel, size_t gridX,
                          size_t gridY, size_t gridZ, size_t blockX,
                          size_t blockY, size_t blockZ, size_t sharedMemBytes,
                          void **params, size_t paramsCount) {
@@ -160,7 +138,7 @@ static void launchKernel(QUEUE *queue, sycl::kernel *kernel, size_t gridX,
   auto syclLocalRange = sycl::range<3>(blockZ, blockY, blockX);
   sycl::nd_range<3> syclNdRange(syclGlobalRange, syclLocalRange);
 
-  queue->syclQueue_.submit([&](sycl::handler &cgh) {
+  queue->submit([&](sycl::handler &cgh) {
     for (size_t i = 0; i < paramsCount; i++) {
       cgh.set_arg(static_cast<uint32_t>(i), *(static_cast<void **>(params[i])));
     }
@@ -170,23 +148,27 @@ static void launchKernel(QUEUE *queue, sycl::kernel *kernel, size_t gridX,
 
 // Wrappers
 
-extern "C" SYCL_RUNTIME_EXPORT QUEUE *mgpuStreamCreate() {
+extern "C" SYCL_RUNTIME_EXPORT sycl::queue *mgpuStreamCreate() {
 
-  return catchAll([&]() { return new QUEUE(); });
+  return catchAll([&]() {
+    sycl::queue *queue =
+        new sycl::queue(getDefaultContext(), getDefaultDevice());
+    return queue;
+  });
 }
 
-extern "C" SYCL_RUNTIME_EXPORT void mgpuStreamDestroy(QUEUE *queue) {
+extern "C" SYCL_RUNTIME_EXPORT void mgpuStreamDestroy(sycl::queue *queue) {
   catchAll([&]() { delete queue; });
 }
 
-extern "C" SYCL_RUNTIME_EXPORT void *mgpuMemAlloc(uint64_t size, QUEUE *queue,
-                                                  bool isShared) {
+extern "C" SYCL_RUNTIME_EXPORT void *
+mgpuMemAlloc(uint64_t size, sycl::queue *queue, bool isShared) {
   return catchAll([&]() {
     return allocDeviceMemory(queue, static_cast<size_t>(size), true);
   });
 }
 
-extern "C" SYCL_RUNTIME_EXPORT void mgpuMemFree(void *ptr, QUEUE *queue) {
+extern "C" SYCL_RUNTIME_EXPORT void mgpuMemFree(void *ptr, sycl::queue *queue) {
   catchAll([&]() {
     if (ptr) {
       deallocDeviceMemory(queue, ptr);
@@ -207,17 +189,17 @@ mgpuModuleGetFunction(ze_module_handle_t module, const char *name) {
 extern "C" SYCL_RUNTIME_EXPORT void
 mgpuLaunchKernel(sycl::kernel *kernel, size_t gridX, size_t gridY, size_t gridZ,
                  size_t blockX, size_t blockY, size_t blockZ,
-                 size_t sharedMemBytes, QUEUE *queue, void **params,
-                 void **extra, size_t paramsCount) {
+                 size_t sharedMemBytes, sycl::queue *queue, void **params,
+                 void ** /*extra*/, size_t paramsCount) {
   return catchAll([&]() {
     launchKernel(queue, kernel, gridX, gridY, gridZ, blockX, blockY, blockZ,
                  sharedMemBytes, params, paramsCount);
   });
 }
 
-extern "C" SYCL_RUNTIME_EXPORT void mgpuStreamSynchronize(QUEUE *queue) {
+extern "C" SYCL_RUNTIME_EXPORT void mgpuStreamSynchronize(sycl::queue *queue) {
 
-  catchAll([&]() { queue->syclQueue_.wait(); });
+  catchAll([&]() { queue->wait(); });
 }
 
 extern "C" SYCL_RUNTIME_EXPORT void
