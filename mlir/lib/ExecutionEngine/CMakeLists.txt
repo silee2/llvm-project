@@ -14,6 +14,7 @@ set(LLVM_OPTIONAL_SOURCES
   OptUtils.cpp
   JitRunner.cpp
   SyclRuntimeWrappers.cpp
+  OpenCLRuntimeWrappers.cpp
   )
 
 # Use a separate library for OptUtils, to avoid pulling in the entire JIT and
@@ -369,5 +370,89 @@ if(LLVM_ENABLE_PIC)
     target_link_libraries(mlir_sycl_runtime PRIVATE LevelZero::LevelZero SyclRuntime::SyclRuntime)
 
     set_property(TARGET mlir_sycl_runtime APPEND PROPERTY BUILD_RPATH "${LevelZero_LIBRARIES_DIR}" "${SyclRuntime_LIBRARIES_DIR}")
+  endif()
+
+  if(MLIR_ENABLE_OPENCL_RUNNER)
+    # Try FindOpenCL.cmake first
+    find_package(OpenCL)
+    if(NOT OpenCL_FOUND)
+      # Intel does not distribute OpenCL SDK separately since 2020 and bundles it with DPC++ Compiler.
+      # Header and Libraries are not standard location needs the custom searching.
+      if(DEFINED ENV{CMPLR_ROOT})
+        # CMAKE_SYSTEM_NAME needs to be checked after "project"
+        if(${CMAKE_VERSION} VERSION_LESS 3.25)
+          # CMake starting with version 3.25 sets var LINUX to true if target system is linux
+          if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+            set(LINUX TRUE)
+          endif()
+        endif()
+        # Set SDK root path for Linux and Windows
+        if(LINUX OR (${CMAKE_SYSTEM_NAME} MATCHES "Linux"))
+          set(DEV_ROOT "$ENV{CMPLR_ROOT}/linux")
+        elseif(WIN32)
+          set(DEV_ROOT "$ENV{CMPLR_ROOT}/windows")
+        endif()
+
+        # Find custom path for OpenCL_INCLUDE_DIR and OpenCL_LIBRARY
+        find_path(OpenCL_INCLUDE_DIR REQUIRED
+            NAMES
+                CL/cl.h OpenCL/cl.h
+            PATHS
+                ${DEV_ROOT}
+            PATH_SUFFIXES
+                include/sycl
+            )
+
+        find_library(OpenCL_LIBRARY REQUIRED
+            NAMES OpenCL
+            PATHS
+                ${DEV_ROOT}
+            PATH_SUFFIXES
+                lib)
+
+        # Clear cached variables for OpenCL version checking.
+        foreach(VERSION "3_0" "2_2" "2_1" "2_0" "1_2" "1_1" "1_0")
+          unset(OPENCL_VERSION_${VERSION} CACHE)
+        endforeach()
+
+        find_package(OpenCL)
+      endif()
+    endif()
+
+    # If FindOpenCL.cmake failed. Use Khronos OpenCL headers and ICD loader
+    if(NOT OpenCL_FOUND)
+      include(FetchContent)
+      FetchContent_Declare(OpenCL-Headers
+        GIT_REPOSITORY  "https://github.com/KhronosGroup/OpenCL-Headers.git"
+        GIT_TAG         main
+        GIT_SHALLOW     TRUE
+      )
+      FetchContent_MakeAvailable(OpenCL-Headers)
+      FetchContent_GetProperties(OpenCL-Headers
+        SOURCE_DIR OpenCL_INCLUDE_DIR
+      )
+      FetchContent_Declare(OpenCL-ICD-Loader
+        GIT_REPOSITORY  "https://github.com/KhronosGroup/OpenCL-ICD-Loader.git"
+        GIT_TAG         main
+        GIT_SHALLOW     TRUE
+      )
+      FetchContent_MakeAvailable(OpenCL-ICD-Loader)
+      set(OpenCL_LIBRARY ${PROJECT_BINARY_DIR}/lib/libOpenCL.so)
+
+      # Emulate CMake variables defined by FindOpenCL.cmake
+      set(OpenCL_FOUND TRUE)
+      set(OpenCL_LIBRARIES ${OpenCL_LIBRARY})
+      set(OpenCL_INCLUDE_DIRS ${OpenCL_INCLUDE_DIR})
+      set(OpenCL_VERSION_STRING "3.0")
+      set(OpenCL_VERSION_MAJOR "3")
+      set(OpenCL_VERSION_MINOR "0")
+    endif()
+    add_mlir_library(mlir_opencl_runtime
+      SHARED
+      OpenCLRuntimeWrappers.cpp
+
+      EXCLUDE_FROM_LIBMLIR
+    )
+    target_link_libraries(mlir_opencl_runtime PUBLIC OpenCL::OpenCL)
   endif()
 endif()
