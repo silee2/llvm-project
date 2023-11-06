@@ -6,7 +6,6 @@ set(LLVM_OPTIONAL_SOURCES
   CRunnerUtils.cpp
   CudaRuntimeWrappers.cpp
   SparseTensorRuntime.cpp
-  SyclRuntimeWrappers.cpp
   ExecutionEngine.cpp
   Float16bits.cpp
   RocmRuntimeWrappers.cpp
