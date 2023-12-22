@@ -14,6 +14,7 @@ set(LLVM_OPTIONAL_SOURCES
   OptUtils.cpp
   JitRunner.cpp
   SyclRuntimeWrappers.cpp
+  OneAPIUnifiedRuntimeWrappers.cpp
   )
 
 # Use a separate library for OptUtils, to avoid pulling in the entire JIT and
@@ -372,5 +373,39 @@ if(LLVM_ENABLE_PIC)
     target_link_libraries(mlir_sycl_runtime PRIVATE LevelZero::LevelZero SyclRuntime::SyclRuntime)
 
     set_property(TARGET mlir_sycl_runtime APPEND PROPERTY BUILD_RPATH "${LevelZero_LIBRARIES_DIR}" "${SyclRuntime_LIBRARIES_DIR}")
+  endif()
+
+  if(MLIR_ENABLE_ONEAPI_UNIFIED_RUNNER)
+    include(FetchContent)
+
+    FetchContent_Declare(
+    unified-runtime
+    GIT_REPOSITORY https://github.com/oneapi-src/unified-runtime.git
+    GIT_TAG main  # This will pull the latest changes from the main branch.
+    )
+    set(UR_BUILD_ADAPTER_OPENCL 1)
+    add_definitions(-Wno-global-constructors)
+    FetchContent_MakeAvailable(unified-runtime)
+
+    add_executable(mlir_oneapi_unified_runtime
+      OneAPIUnifiedRuntimeWrappers.cpp
+    )
+    #add_mlir_library(mlir_oneapi_unified_runtime
+    #  SHARED
+    #  OneAPIUnifiedRuntimeWrappers.cpp
+    #
+    #  EXCLUDE_FROM_LIBMLIR
+    #)
+
+    target_link_libraries(mlir_oneapi_unified_runtime
+        PRIVATE
+        unified-runtime::headers
+        unified-runtime::loader
+        ${CMAKE_DL_LIBS}
+    )
+    #target_compile_options(mlir_oneapi_unified_runtime
+    #    PRIVATE
+    #    -Wno-error
+    #)
   endif()
 endif()
