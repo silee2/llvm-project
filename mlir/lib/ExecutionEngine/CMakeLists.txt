@@ -383,6 +383,7 @@ if(LLVM_ENABLE_PIC)
     GIT_REPOSITORY https://github.com/oneapi-src/unified-runtime.git
     GIT_TAG main  # This will pull the latest changes from the main branch.
     )
+    set(OPENCL_ICD_LOADER_BUILD_SHARED_LIBS 1)
     set(UR_BUILD_ADAPTER_OPENCL 1)
     add_definitions(-Wno-global-constructors)
     FetchContent_MakeAvailable(unified-runtime)
@@ -403,6 +404,8 @@ if(LLVM_ENABLE_PIC)
         unified-runtime::loader
         ${CMAKE_DL_LIBS}
     )
+    set_property(TARGET mlir_oneapi_unified_runtime
+        APPEND PROPERTY BUILD_RPATH "${LevelZero_LIBRARIES_DIR}")
     #target_compile_options(mlir_oneapi_unified_runtime
     #    PRIVATE
     #    -Wno-error
