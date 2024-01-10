@@ -1,15 +1,9 @@
-//===- XeGPUOps.h - XeGPU dialect  -------*- C++ -*-===//
+//===- XeGPU.h - MLIR dialect for XeGPU -------------------------*- C++ -*-===//
 //
-// Copyright 2022 Intel Corporation
-// Part of the mlir Project, under the Apache License v2.0 with LLVM Exceptions.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//===----------------------------------------------------------------------===//
-///
-/// \file
-/// This file declares the XeGPU dialect.
-///
 //===----------------------------------------------------------------------===//
 
 #ifndef _XeGPU_OPS_H_INCLUDED_
@@ -53,6 +47,6 @@ class TensorDescType;
 #define GET_TYPEDEF_CLASSES
 #include <mlir/Dialect/XeGPU/IR/XeGPUTypes.h.inc>
 #define GET_OP_CLASSES
-#include <mlir/Dialect/XeGPU/IR/XeGPUOps.h.inc>
+#include <mlir/Dialect/XeGPU/IR/XeGPU.h.inc>
 
 #endif // _XeGPU_OPS_H_INCLUDED_

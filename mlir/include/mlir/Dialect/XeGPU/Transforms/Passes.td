@@ -1,7 +1,7 @@
 //===-- Passes.td - XeGPU pass definition file --------*- tablegen -*-===//
 //
 // Copyright 2022 Intel Corporation
-// Part of the IMEX Project, under the Apache License v2.0 with LLVM Exceptions.
+// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
@@ -31,8 +31,8 @@ include "mlir/Pass/PassBase.td"
 //     #### Output IR
 //
 //   }];
-//   let constructor = "::imex::createXeGPUToSPIRVWithVCIntrinsicsPass()";
-//   let dependentDialects = ["::imex::xegpu::XeGPUDialect"];
+//   let constructor = "::mlir::createXeGPUToSPIRVWithVCIntrinsicsPass()";
+//   let dependentDialects = ["::mlir::xegpu::XeGPUDialect"];
 //   let options = [];
 // }
 
@@ -50,8 +50,8 @@ include "mlir/Pass/PassBase.td"
 //     #### Output IR
 //
 //   }];
-//   let constructor = "::imex::createXeGPUToSPIRVWithJointMatrixPass()";
-//   let dependentDialects = ["::imex::xegpu::XeGPUDialect"];
+//   let constructor = "::mlir::createXeGPUToSPIRVWithJointMatrixPass()";
+//   let dependentDialects = ["::mlir::xegpu::XeGPUDialect"];
 //   let options = [];
 // }
 

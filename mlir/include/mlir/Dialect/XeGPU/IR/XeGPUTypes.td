@@ -1,15 +1,9 @@
-//===- XeGPUOps.td - XeGPU dialect  -------*- tablegen -*-===//
+//===- XeGPUTypes.td - XeGPU dialect types definition -------*- tablegen -*-===//
 //
-// Copyright 2022 Intel Corporation
-// Part of the mlir Project, under the Apache License v2.0 with LLVM Exceptions.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//===----------------------------------------------------------------------===//
-///
-/// \file
-/// This file defines the basic operations for the XeGPU dialect.
-///
 //===----------------------------------------------------------------------===//
 
 #ifndef _XEGPU_TYPES_TD_INCLUDED_

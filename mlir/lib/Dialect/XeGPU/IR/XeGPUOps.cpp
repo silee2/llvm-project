@@ -1,20 +1,14 @@
-//===- XeGPUOps.cpp - XeGPU dialect -------*- C++ -*-===//
+//===- XeGPUOps.cpp - MLIR XeGPU ops implementation -------------*- C++ -*-===//
 //
-// Copyright 2022 Intel Corporation
-// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-///
-/// \file
-/// This file implements the XeGPU dialect and its basic operations.
-///
-//===----------------------------------------------------------------------===//
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/Support/Debug.h>
-#include <mlir/Dialect/XeGPU/IR/XeGPUOps.h>
+#include <mlir/Dialect/XeGPU/IR/XeGPU.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
@@ -1140,16 +1134,14 @@ LogicalResult DpasOp::verify() {
   int64_t rhsRank = getRhsType().getRank();
   Type lhsElemType = getLhsType().getElementType();
   Type rhsElemType = getRhsType().getElementType();
-  Type resultElemType = getResultType().getElementType();
 
   if (lhsElemType != rhsElemType) {
     return emitOpError("lhs and rhs element type does not match for dpas op");
   }
 
-  if (getAcc()) {
-    if (getAccType() != getResultType())
-      return emitOpError("Accumulator and Result for dpas op should have the "
-                         "same type (both shape and element type).");
+  if (getAcc() && getAccType() != getResultType()) {
+    return emitOpError("Accumulator and Result for dpas op should have the "
+                       "same type (both shape and element type).");
   }
 
   if (lhsRank != rhsRank || lhsRank != 3) {
@@ -1779,4 +1771,4 @@ void AtomicRMWOp::build(OpBuilder &builder, OperationState &state, Type result,
 
 #include <mlir/Dialect/XeGPU/IR/XeGPUEnums.cpp.inc>
 #define GET_OP_CLASSES
-#include <mlir/Dialect/XeGPU/IR/XeGPUOps.cpp.inc>
+#include <mlir/Dialect/XeGPU/IR/XeGPU.cpp.inc>

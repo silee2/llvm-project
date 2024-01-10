@@ -1,18 +1,12 @@
-//===- XeGPUDialect.cpp - XeGPU dialect -------*- C++ -*-===//
+//===- XeGPUDialect.cpp - MLIR XeGPU dialect implementation -----*- C++ -*-===//
 //
-// Copyright 2022 Intel Corporation
-// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-///
-/// \file
-/// This file implements the XeGPU dialect and its basic operations.
-///
-//===----------------------------------------------------------------------===//
 
-#include <mlir/Dialect/XeGPU/IR/XeGPUOps.h>
+#include <mlir/Dialect/XeGPU/IR/XeGPU.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/Support/Debug.h>
 
@@ -37,7 +31,7 @@ void XeGPUDialect::initialize() {
       >();
   addOperations<
 #define GET_OP_LIST
-#include <mlir/Dialect/XeGPU/IR/XeGPUOps.cpp.inc>
+#include <mlir/Dialect/XeGPU/IR/XeGPU.cpp.inc>
       >();
   addAttributes<
 #define GET_ATTRDEF_LIST
