@@ -8,12 +8,12 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/Support/Debug.h>
-#include <mlir/Dialect/XeGPU/IR/XeGPU.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/Dialect/Utils/StaticValueUtils.h>
+#include <mlir/Dialect/XeGPU/IR/XeGPU.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/DialectImplementation.h>
 #include <mlir/IR/TypeUtilities.h>
@@ -62,8 +62,8 @@ static std::string makeString(T array, bool breakline = false) {
 
 template <typename CustomEnum, typename CustomEnumAttr>
 static ParseResult parseCustomEnumAttr(OpAsmParser &parser,
-                                             OperationState &result,
-                                             llvm::StringRef attrKeyword) {
+                                       OperationState &result,
+                                       llvm::StringRef attrKeyword) {
   auto loc = parser.getCurrentLocation();
   auto attrOptional = FieldParser<CustomEnum, CustomEnum>::parse(parser);
   if (failed(attrOptional))
@@ -76,8 +76,8 @@ static ParseResult parseCustomEnumAttr(OpAsmParser &parser,
 
 template <typename AttrType>
 static ParseResult parseBoolAndIntegerAttr(OpAsmParser &parser,
-                                                 OperationState &result,
-                                                 llvm::StringRef attrKeyword) {
+                                           OperationState &result,
+                                           llvm::StringRef attrKeyword) {
   AttrType attr;
   Type ty;
 
@@ -117,7 +117,8 @@ parseOptionalAttrDict(OpAsmParser &parser, OperationState &result,
     auto loc = parser.getCurrentLocation();
     llvm::StringRef nameId;
     if (parser.parseOptionalKeyword(&nameId, allowedKeywords))
-      return parser.emitError(loc, "invalid attribute keyword: ") << nameId << ".\n";
+      return parser.emitError(loc, "invalid attribute keyword: ")
+             << nameId << ".\n";
 
     if (parser.parseEqual())
       return failure();
@@ -154,8 +155,7 @@ parseOptionalAttrDict(OpAsmParser &parser, OperationState &result,
 }
 
 template <typename T>
-static void printCacheHintAttrs(OpAsmPrinter &printer, T op,
-                                bool printSep) {
+static void printCacheHintAttrs(OpAsmPrinter &printer, T op, bool printSep) {
   if (op.getL1HintAttr()) {
     if (printSep)
       printer << ", ";
@@ -214,12 +214,10 @@ static bool verifyAndInferShape(std::vector<int64_t> &shape,
 /// @param static_offsets, the static offset. If it is not used it should be
 /// filled with ShapeType::kDynamic
 /// @param mode, VC or SIMT
-void CreateNdDescOp::build(OpBuilder &builder,
-                           OperationState &state, Type TensorDesc,
-                           Value source, ValueRange offsets,
+void CreateNdDescOp::build(OpBuilder &builder, OperationState &state,
+                           Type TensorDesc, Value source, ValueRange offsets,
                            ValueRange shape, ValueRange strides,
-                           llvm::ArrayRef<int64_t> static_offsets,
-                           Mode mode) {
+                           llvm::ArrayRef<int64_t> static_offsets, Mode mode) {
   auto offsetRank = static_offsets.size();
   auto shapeRank = shape.size() ? shape.size() : getRankOf(source);
 
@@ -249,11 +247,9 @@ void CreateNdDescOp::build(OpBuilder &builder,
   state.addTypes(TensorDesc);
 }
 
-void CreateNdDescOp::build(OpBuilder &builder,
-                           OperationState &state, Type tdesc,
-                           Value source,
-                           llvm::ArrayRef<OpFoldResult> offsets,
-                           Mode mode) {
+void CreateNdDescOp::build(OpBuilder &builder, OperationState &state,
+                           Type tdesc, Value source,
+                           llvm::ArrayRef<OpFoldResult> offsets, Mode mode) {
   auto ty = llvm::dyn_cast_if_present<MemRefType>(source.getType());
   assert(ty && ty.hasStaticShape() && offsets.size() == getRankOf(source));
 
@@ -267,9 +263,8 @@ void CreateNdDescOp::build(OpBuilder &builder,
         staticOffsets /* static offsets */, mode);
 }
 
-void CreateNdDescOp::build(OpBuilder &builder,
-                           OperationState &state, Type tdesc,
-                           Value source,
+void CreateNdDescOp::build(OpBuilder &builder, OperationState &state,
+                           Type tdesc, Value source,
                            llvm::ArrayRef<OpFoldResult> offsets,
                            ValueRange shape, ValueRange stride,
                            xegpu::Mode mode) {
@@ -286,8 +281,7 @@ void CreateNdDescOp::build(OpBuilder &builder,
         staticOffsets /* static offsets */, mode);
 }
 
-ParseResult CreateNdDescOp::parse(OpAsmParser &parser,
-                                        OperationState &result) {
+ParseResult CreateNdDescOp::parse(OpAsmParser &parser, OperationState &result) {
   // parse the source operand
   OpAsmParser::UnresolvedOperand sourceRawOperands[1];
   llvm::ArrayRef<OpAsmParser::UnresolvedOperand> sourceOperands(
@@ -494,8 +488,7 @@ llvm::SmallVector<OpFoldResult> CreateNdDescOp::getShape() {
   auto ty = llvm::dyn_cast_if_present<MemRefType>(getSourceType());
   if (ty && ty.hasStaticShape()) {
     for (auto dim : ty.getShape()) {
-      auto attr =
-          IntegerAttr::get(IndexType::get(getContext()), dim);
+      auto attr = IntegerAttr::get(IndexType::get(getContext()), dim);
       shape.push_back(attr);
     }
     return shape;
@@ -529,13 +522,13 @@ llvm::SmallVector<OpFoldResult> CreateNdDescOp::getStrides() {
   if (ty && ty.hasStaticShape()) {
     auto [staticStrides, offset] = getStridesAndOffset(ty);
     for (auto dim : staticStrides) {
-      auto attr =
-          IntegerAttr::get(IndexType::get(getContext()), dim);
+      auto attr = IntegerAttr::get(IndexType::get(getContext()), dim);
       strides.push_back(attr);
     }
     return strides;
   }
-  llvm_unreachable("Unexpected error in CreateNdDescOp. The strides information is missing.\n");
+  llvm_unreachable("Unexpected error in CreateNdDescOp. The strides "
+                   "information is missing.\n");
 }
 
 /// Return the element type of the TensorDesc
@@ -548,8 +541,7 @@ llvm::ArrayRef<int64_t> CreateNdDescOp::getTensorDescShape() {
   return getTensorDescType().getShape();
 }
 
-ParseResult CreateDescOp::parse(OpAsmParser &parser,
-                                      OperationState &result) {
+ParseResult CreateDescOp::parse(OpAsmParser &parser, OperationState &result) {
   OpAsmParser::UnresolvedOperand sourceRawOperands[1];
   llvm::ArrayRef<OpAsmParser::UnresolvedOperand> sourceOperands(
       sourceRawOperands);
@@ -685,27 +677,32 @@ LogicalResult CreateDescOp::verify() {
   return success();
 }
 
-void CreateDescOp::build(OpBuilder &builder, OperationState &state, TensorDescType TensorDesc, 
-                         Value source, Value offsets, uint32_t chunk_size_per_lane) {
+void CreateDescOp::build(OpBuilder &builder, OperationState &state,
+                         TensorDescType TensorDesc, Value source, Value offsets,
+                         uint32_t chunk_size_per_lane) {
   state.addOperands(source);
   state.addOperands(offsets);
-  state.getOrAddProperties<Properties>().chunk_size_per_lane = builder.getIntegerAttr(builder.getIntegerType(32), chunk_size_per_lane);
-  state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);
-  state.addTypes(TensorDesc);  
+  state.getOrAddProperties<Properties>().chunk_size_per_lane =
+      builder.getIntegerAttr(builder.getIntegerType(32), chunk_size_per_lane);
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
+  state.addTypes(TensorDesc);
 }
 
-void CreateDescOp::build(OpBuilder &builder, OperationState &state, TensorDescType TensorDesc, 
-                         Value source, Value offsets, IntegerAttr chunk_size_per_lane) {
+void CreateDescOp::build(OpBuilder &builder, OperationState &state,
+                         TensorDescType TensorDesc, Value source, Value offsets,
+                         IntegerAttr chunk_size_per_lane) {
   state.addOperands(source);
   state.addOperands(offsets);
-  if(chunk_size_per_lane)
-    state.getOrAddProperties<Properties>().chunk_size_per_lane = chunk_size_per_lane;
-  state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);
-  state.addTypes(TensorDesc);  
+  if (chunk_size_per_lane)
+    state.getOrAddProperties<Properties>().chunk_size_per_lane =
+        chunk_size_per_lane;
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
+  state.addTypes(TensorDesc);
 }
 
-ParseResult LoadNDOp::parse(OpAsmParser &parser,
-                                  OperationState &result) {
+ParseResult LoadNDOp::parse(OpAsmParser &parser, OperationState &result) {
   OpAsmParser::UnresolvedOperand TensorDescRawOperands[1];
   llvm::ArrayRef<OpAsmParser::UnresolvedOperand> TensorDescOperands(
       TensorDescRawOperands);
@@ -867,8 +864,7 @@ LogicalResult LoadNDOp::verify() {
   return success();
 }
 
-ParseResult StoreNDOp::parse(OpAsmParser &parser,
-                                   OperationState &result) {
+ParseResult StoreNDOp::parse(OpAsmParser &parser, OperationState &result) {
   OpAsmParser::UnresolvedOperand valueRawOperands[1];
   llvm::ArrayRef<OpAsmParser::UnresolvedOperand> valueOperands(
       valueRawOperands);
@@ -1008,8 +1004,7 @@ LogicalResult StoreNDOp::verify() {
   return success();
 }
 
-ParseResult PrefetchNDOp::parse(OpAsmParser &parser,
-                                      OperationState &result) {
+ParseResult PrefetchNDOp::parse(OpAsmParser &parser, OperationState &result) {
   OpAsmParser::UnresolvedOperand TensorDescRawOperands[1];
   llvm::ArrayRef<OpAsmParser::UnresolvedOperand> TensorDescOperands(
       TensorDescRawOperands);
@@ -1088,15 +1083,13 @@ LogicalResult DpasOp::verify() {
   return success();
 }
 
-ParseResult LoadGatherOp::parse(OpAsmParser &parser,
-                                      OperationState &result) {
+ParseResult LoadGatherOp::parse(OpAsmParser &parser, OperationState &result) {
   OpAsmParser::UnresolvedOperand TensorDescRawOperands[1];
   llvm::ArrayRef<OpAsmParser::UnresolvedOperand> TensorDescOperands(
       TensorDescRawOperands);
   llvm::SMLoc TensorDescOperandsLoc;
   OpAsmParser::UnresolvedOperand maskRawOperands[1];
-  llvm::ArrayRef<OpAsmParser::UnresolvedOperand> maskOperands(
-      maskRawOperands);
+  llvm::ArrayRef<OpAsmParser::UnresolvedOperand> maskOperands(maskRawOperands);
   llvm::SMLoc maskOperandsLoc;
 
   Type TensorDescRawTypes[1];
@@ -1221,7 +1214,7 @@ LogicalResult LoadGatherOp::verify() {
       return llvm::dyn_cast<VectorType>(type).getElementType();
     else if (llvm::isa<TensorDescType>(type))
       return llvm::dyn_cast<TensorDescType>(type).getElementType();
-    llvm_unreachable("Unsupported type."); 
+    llvm_unreachable("Unsupported type.");
     return type;
   };
 
@@ -1238,7 +1231,7 @@ LogicalResult LoadGatherOp::verify() {
     else if (llvm::isa<VectorType>(type))
       shape = llvm::dyn_cast<VectorType>(type).getShape().vec();
     else
-      llvm_unreachable("Unsupported type."); 
+      llvm_unreachable("Unsupported type.");
     return shape;
   };
 
@@ -1285,55 +1278,64 @@ LogicalResult LoadGatherOp::verify() {
   return success();
 }
 
-void LoadGatherOp::build(OpBuilder &builder, OperationState &state, Type value, Value TensorDesc, 
-                         Value mask, IntegerAttr vnni_axis, DenseI64ArrayAttr transpose, 
-                         CacheReadHintAttr l1_hint, CacheReadHintAttr l2_hint, CacheReadHintAttr l3_hint) {
+void LoadGatherOp::build(OpBuilder &builder, OperationState &state, Type value,
+                         Value TensorDesc, Value mask, IntegerAttr vnni_axis,
+                         DenseI64ArrayAttr transpose, CacheReadHintAttr l1_hint,
+                         CacheReadHintAttr l2_hint, CacheReadHintAttr l3_hint) {
   state.addOperands(TensorDesc);
   state.addOperands(mask);
-  if (vnni_axis) 
+  if (vnni_axis)
     state.getOrAddProperties<Properties>().vnni_axis = vnni_axis;
-  
-  if (transpose) 
+
+  if (transpose)
     state.getOrAddProperties<Properties>().transpose = transpose;
-  
-  if (l1_hint) 
+
+  if (l1_hint)
     state.getOrAddProperties<Properties>().l1_hint = l1_hint;
-  
-  if (l2_hint) 
+
+  if (l2_hint)
     state.getOrAddProperties<Properties>().l2_hint = l2_hint;
-  
-  if (l3_hint) 
+
+  if (l3_hint)
     state.getOrAddProperties<Properties>().l3_hint = l3_hint;
-  
-  state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);
-  state.addTypes(value); 
+
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
+  state.addTypes(value);
 }
 
-void LoadGatherOp::build(OpBuilder &builder, OperationState &state, Type value, Value TensorDesc, 
-                         Value mask, IntegerAttr vnni_axis, DenseI64ArrayAttr transpose, 
-                         CacheReadHint l1_hint, CacheReadHint l2_hint, CacheReadHint l3_hint) {
+void LoadGatherOp::build(OpBuilder &builder, OperationState &state, Type value,
+                         Value TensorDesc, Value mask, IntegerAttr vnni_axis,
+                         DenseI64ArrayAttr transpose, CacheReadHint l1_hint,
+                         CacheReadHint l2_hint, CacheReadHint l3_hint) {
   state.addOperands(TensorDesc);
   state.addOperands(mask);
-  if (vnni_axis) 
+  if (vnni_axis)
     state.getOrAddProperties<Properties>().vnni_axis = vnni_axis;
-  
-  if (transpose) 
+
+  if (transpose)
     state.getOrAddProperties<Properties>().transpose = transpose;
-  
-  state.getOrAddProperties<Properties>().l1_hint = CacheReadHintAttr::get(builder.getContext(), l1_hint);
-  state.getOrAddProperties<Properties>().l2_hint = CacheReadHintAttr::get(builder.getContext(), l2_hint);
-  state.getOrAddProperties<Properties>().l3_hint = CacheReadHintAttr::get(builder.getContext(), l3_hint);
-  state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);
-  state.addTypes(value); 
+
+  state.getOrAddProperties<Properties>().l1_hint =
+      CacheReadHintAttr::get(builder.getContext(), l1_hint);
+  state.getOrAddProperties<Properties>().l2_hint =
+      CacheReadHintAttr::get(builder.getContext(), l2_hint);
+  state.getOrAddProperties<Properties>().l3_hint =
+      CacheReadHintAttr::get(builder.getContext(), l3_hint);
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
+  state.addTypes(value);
 }
 
 ParseResult StoreScatterOp::parse(OpAsmParser &parser, OperationState &result) {
   OpAsmParser::UnresolvedOperand TensorDescRawOperands[1];
-  llvm::ArrayRef<OpAsmParser::UnresolvedOperand> TensorDescOperands(TensorDescRawOperands);
+  llvm::ArrayRef<OpAsmParser::UnresolvedOperand> TensorDescOperands(
+      TensorDescRawOperands);
   llvm::SMLoc TensorDescOperandsLoc;
 
   OpAsmParser::UnresolvedOperand valueRawOperands[1];
-  llvm::ArrayRef<OpAsmParser::UnresolvedOperand> valueOperands(valueRawOperands);
+  llvm::ArrayRef<OpAsmParser::UnresolvedOperand> valueOperands(
+      valueRawOperands);
   llvm::SMLoc valueOperandsLoc;
 
   OpAsmParser::UnresolvedOperand maskRawOperands[1];
@@ -1451,7 +1453,7 @@ LogicalResult StoreScatterOp::verify() {
   auto mode = getMode();
   auto mapping = tdescTy.getMapping();
 
-  if (mode != Mode::VC || mapping) 
+  if (mode != Mode::VC || mapping)
     return emitOpError("StoreScatterOp only supports VC mode and mapping "
                        "attribute of TensorDesc is not expected.\n");
 
@@ -1466,7 +1468,7 @@ LogicalResult StoreScatterOp::verify() {
     else if (llvm::isa<VectorType>(type))
       shape = llvm::dyn_cast<VectorType>(type).getShape().vec();
     else
-      llvm_unreachable("Unsupported type."); 
+      llvm_unreachable("Unsupported type.");
     return shape;
   };
 
@@ -1488,9 +1490,11 @@ LogicalResult StoreScatterOp::verify() {
   return success();
 }
 
-void StoreScatterOp::build(OpBuilder &builder, OperationState &state, Value value, 
-                           Value TensorDesc, Value mask, CacheWriteHintAttr l1_hint, 
-                           CacheWriteHintAttr l2_hint, CacheWriteHintAttr l3_hint) {
+void StoreScatterOp::build(OpBuilder &builder, OperationState &state,
+                           Value value, Value TensorDesc, Value mask,
+                           CacheWriteHintAttr l1_hint,
+                           CacheWriteHintAttr l2_hint,
+                           CacheWriteHintAttr l3_hint) {
   state.addOperands(value);
   state.addOperands(TensorDesc);
   state.addOperands(mask);
@@ -1503,19 +1507,27 @@ void StoreScatterOp::build(OpBuilder &builder, OperationState &state, Value valu
   if (l3_hint) {
     state.getOrAddProperties<Properties>().l3_hint = l3_hint;
   }
-  state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);  
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
 }
 
-void StoreScatterOp::build(OpBuilder &builder, OperationState &state, Value value, 
-                           Value TensorDesc, Value mask, CacheWriteHint l1_hint, 
-                           CacheWriteHint l2_hint, CacheWriteHint l3_hint) {
+void StoreScatterOp::build(OpBuilder &builder, OperationState &state,
+                           Value value, Value TensorDesc, Value mask,
+                           CacheWriteHint l1_hint, CacheWriteHint l2_hint,
+                           CacheWriteHint l3_hint) {
   state.addOperands(value);
   state.addOperands(TensorDesc);
   state.addOperands(mask);
-  state.getOrAddProperties<Properties>().l1_hint = CacheWriteHintAttr::get(builder.getContext(), l1_hint);
-  state.getOrAddProperties<Properties>().l2_hint = CacheWriteHintAttr::get(builder.getContext(), l2_hint);;
-  state.getOrAddProperties<Properties>().l3_hint = CacheWriteHintAttr::get(builder.getContext(), l3_hint);;
-  state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);  
+  state.getOrAddProperties<Properties>().l1_hint =
+      CacheWriteHintAttr::get(builder.getContext(), l1_hint);
+  state.getOrAddProperties<Properties>().l2_hint =
+      CacheWriteHintAttr::get(builder.getContext(), l2_hint);
+  ;
+  state.getOrAddProperties<Properties>().l3_hint =
+      CacheWriteHintAttr::get(builder.getContext(), l3_hint);
+  ;
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
 }
 
 ParseResult PrefetchOp::parse(OpAsmParser &parser, OperationState &result) {
@@ -1591,29 +1603,36 @@ LogicalResult PrefetchOp::verify() {
   return success();
 }
 
-void PrefetchOp::build(OpBuilder &builder, OperationState &state, Value TensorDesc, 
-         CacheReadHintAttr l1_hint, CacheReadHintAttr l2_hint, CacheReadHintAttr l3_hint) {
+void PrefetchOp::build(OpBuilder &builder, OperationState &state,
+                       Value TensorDesc, CacheReadHintAttr l1_hint,
+                       CacheReadHintAttr l2_hint, CacheReadHintAttr l3_hint) {
   state.addOperands(TensorDesc);
-  if (l1_hint) 
+  if (l1_hint)
     state.getOrAddProperties<Properties>().l1_hint = l1_hint;
-  
-  if (l2_hint) 
+
+  if (l2_hint)
     state.getOrAddProperties<Properties>().l2_hint = l2_hint;
-  
-  if (l3_hint) 
+
+  if (l3_hint)
     state.getOrAddProperties<Properties>().l3_hint = l3_hint;
-  
-  state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);
-      
+
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
 }
 
-void PrefetchOp::build(OpBuilder &builder, OperationState &state, Value TensorDesc, 
-                      CacheReadHint l1_hint, CacheReadHint l2_hint, CacheReadHint l3_hint) {
+void PrefetchOp::build(OpBuilder &builder, OperationState &state,
+                       Value TensorDesc, CacheReadHint l1_hint,
+                       CacheReadHint l2_hint, CacheReadHint l3_hint) {
   state.addOperands(TensorDesc);
-  state.getOrAddProperties<Properties>().l1_hint = CacheReadHintAttr::get(builder.getContext(), l1_hint);
-  state.getOrAddProperties<Properties>().l2_hint = CacheReadHintAttr::get(builder.getContext(), l2_hint);
-  state.getOrAddProperties<Properties>().l3_hint = CacheReadHintAttr::get(builder.getContext(), l3_hint);;
-  state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);    
+  state.getOrAddProperties<Properties>().l1_hint =
+      CacheReadHintAttr::get(builder.getContext(), l1_hint);
+  state.getOrAddProperties<Properties>().l2_hint =
+      CacheReadHintAttr::get(builder.getContext(), l2_hint);
+  state.getOrAddProperties<Properties>().l3_hint =
+      CacheReadHintAttr::get(builder.getContext(), l3_hint);
+  ;
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
 }
 
 LogicalResult UpdateOffsetOp::verify() {
@@ -1652,22 +1671,26 @@ LogicalResult UpdateNDOffsetOp::verify() {
   return success();
 }
 
-void InvokeSIMDOp::build(OpBuilder &builder, OperationState &state, SymbolRefAttr callee, 
-                         TypeRange results, ArgTypeAttr argType, ValueRange operands) {
+void InvokeSIMDOp::build(OpBuilder &builder, OperationState &state,
+                         SymbolRefAttr callee, TypeRange results,
+                         ArgTypeAttr argType, ValueRange operands) {
   state.addOperands(operands);
   state.addAttribute("argType", argType);
   state.addAttribute("callee", callee);
-  state.addTypes(results);    
+  state.addTypes(results);
 }
 
-void InvokeSIMDOp::build(OpBuilder &builder, OperationState &state, StringAttr callee, 
-                         TypeRange results, ArgTypeAttr argType, ValueRange operands) {
+void InvokeSIMDOp::build(OpBuilder &builder, OperationState &state,
+                         StringAttr callee, TypeRange results,
+                         ArgTypeAttr argType, ValueRange operands) {
   build(builder, state, SymbolRefAttr::get(callee), results, argType, operands);
 }
 
-void InvokeSIMDOp::build(OpBuilder &builder, OperationState &state, llvm::StringRef callee, 
-                         TypeRange results, ArgTypeAttr argType, ValueRange operands) {
-  build(builder, state, StringAttr::get(builder.getContext(), callee), results, argType, operands);
+void InvokeSIMDOp::build(OpBuilder &builder, OperationState &state,
+                         llvm::StringRef callee, TypeRange results,
+                         ArgTypeAttr argType, ValueRange operands) {
+  build(builder, state, StringAttr::get(builder.getContext(), callee), results,
+        argType, operands);
 }
 
 LogicalResult AtomicRMWOp::verify() {
@@ -1678,27 +1701,31 @@ LogicalResult AtomicRMWOp::verify() {
   return success();
 }
 
-void AtomicRMWOp::build(OpBuilder &builder, OperationState &state, Type result, 
-              AtomicRMWKindAttr kind, Value tensorDesc, Value mask, Value value) {
+void AtomicRMWOp::build(OpBuilder &builder, OperationState &state, Type result,
+                        AtomicRMWKindAttr kind, Value tensorDesc, Value mask,
+                        Value value) {
   state.addOperands(tensorDesc);
   state.addOperands(mask);
   if (value)
     state.addOperands(value);
   state.getOrAddProperties<Properties>().kind = kind;
-  state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);
-  state.addTypes(result);  
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
+  state.addTypes(result);
 }
 
-void AtomicRMWOp::build(OpBuilder &builder, OperationState &state, Type result, 
-                 AtomicRMWKind kind, Value tensorDesc, Value mask, Value value) {
-      state.addOperands(tensorDesc);
-      state.addOperands(mask);
-      if (value)
-        state.addOperands(value);
-      state.getOrAddProperties<Properties>().kind = AtomicRMWKindAttr::get(builder.getContext(), kind);
-      state.getOrAddProperties<Properties>().mode = ModeAttr::get(builder.getContext(), Mode::VC);
-      state.addTypes(result);
-    
+void AtomicRMWOp::build(OpBuilder &builder, OperationState &state, Type result,
+                        AtomicRMWKind kind, Value tensorDesc, Value mask,
+                        Value value) {
+  state.addOperands(tensorDesc);
+  state.addOperands(mask);
+  if (value)
+    state.addOperands(value);
+  state.getOrAddProperties<Properties>().kind =
+      AtomicRMWKindAttr::get(builder.getContext(), kind);
+  state.getOrAddProperties<Properties>().mode =
+      ModeAttr::get(builder.getContext(), Mode::VC);
+  state.addTypes(result);
 }
 
 } // namespace xegpu

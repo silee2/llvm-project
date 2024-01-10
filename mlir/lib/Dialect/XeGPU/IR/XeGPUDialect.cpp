@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <mlir/Dialect/XeGPU/IR/XeGPU.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/Support/Debug.h>
+#include <mlir/Dialect/XeGPU/IR/XeGPU.h>
 
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
