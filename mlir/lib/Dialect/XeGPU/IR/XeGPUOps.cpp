@@ -25,16 +25,6 @@
 namespace mlir {
 namespace xegpu {
 
-const int MAX_2D_BLOCK_WIDTH_IN_ELEMENTS = 64;
-const int MIN_2D_BLOCK_WIDTH_IN_ELEMENTS = 1;
-const int MAX_2D_BLOCK_HEIGHT_IN_ELEMENTS = 32;
-const int MIN_2D_BLOCK_HEIGHT_IN_ELEMENTS = 1;
-// TODO: Generalize shapes for different architecture.
-const int MAX_TM_SIZE = 8;
-const int TN_SIZE = 16;
-const int TK_SIZE_FOR_D16 = 16;
-const int TK_SIZE_FOR_D8 = 32;
-
 extern bool printDefaultValues();
 
 static size_t getRankOf(Value value) {
@@ -70,7 +60,6 @@ static std::string makeString(T array, bool breakline = false) {
   return buf;
 }
 
-
 template <typename CustomEnum, typename CustomEnumAttr>
 static ParseResult parseCustomEnumAttr(OpAsmParser &parser,
                                              OperationState &result,
@@ -78,7 +67,7 @@ static ParseResult parseCustomEnumAttr(OpAsmParser &parser,
   auto loc = parser.getCurrentLocation();
   auto attrOptional = FieldParser<CustomEnum, CustomEnum>::parse(parser);
   if (failed(attrOptional))
-    return parser.emitError(loc, "invalid ") << "attribute specification";
+    return parser.emitError(loc, "invalid attribute specification");
   auto attr =
       CustomEnumAttr::get(parser.getBuilder().getContext(), *attrOptional);
   result.addAttribute(attrKeyword, attr);
@@ -94,13 +83,12 @@ static ParseResult parseBoolAndIntegerAttr(OpAsmParser &parser,
 
   if (std::is_same<AttrType, BoolAttr>::value) {
     ty = parser.getBuilder().getIntegerType(1);
-
   } else if (std::is_same<AttrType, IntegerAttr>::value) {
     ty = parser.getBuilder().getIntegerType(32);
   } else if (std::is_same<AttrType, DenseI64ArrayAttr>::value) {
     ty = Type{};
   } else {
-    assert(0 && "Unreachable.\n");
+    llvm_unreachable("Unsupported Attribute Type.");
   }
 
   if (parser.parseCustomAttributeWithFallback(attr, ty))
@@ -129,8 +117,7 @@ parseOptionalAttrDict(OpAsmParser &parser, OperationState &result,
     auto loc = parser.getCurrentLocation();
     llvm::StringRef nameId;
     if (parser.parseOptionalKeyword(&nameId, allowedKeywords))
-      return parser.emitError(loc, "invalid")
-             << "attribute keyword: " << nameId << ".\n";
+      return parser.emitError(loc, "invalid attribute keyword: ") << nameId << ".\n";
 
     if (parser.parseEqual())
       return failure();
@@ -155,10 +142,9 @@ parseOptionalAttrDict(OpAsmParser &parser, OperationState &result,
       return parseBoolAndIntegerAttr<BoolAttr>(parser, result, nameId);
 
     if (nameId == "transpose")
-      return parseBoolAndIntegerAttr<DenseI64ArrayAttr>(parser, result,
-                                                              nameId);
+      return parseBoolAndIntegerAttr<DenseI64ArrayAttr>(parser, result, nameId);
 
-    assert(0 && "Unreachable!");
+    llvm_unreachable("Unsupported attribute keyword.");
   };
 
   if (parser.parseCommaSeparatedList(parseElt))
@@ -549,8 +535,7 @@ llvm::SmallVector<OpFoldResult> CreateNdDescOp::getStrides() {
     }
     return strides;
   }
-  emitOpError("The strides information is missing.");
-  llvm_unreachable("Unexpected error in CreateNdDescOp.\n");
+  llvm_unreachable("Unexpected error in CreateNdDescOp. The strides information is missing.\n");
 }
 
 /// Return the element type of the TensorDesc
@@ -808,9 +793,9 @@ LogicalResult LoadNDOp::verify() {
   auto tdescTy = getTensorDescType();
   auto valueTy = getValueType();
 
-  if (tdescTy.getRank() > 2)
+  if (tdescTy.getRank() != 2)
     return emitOpError(
-        "The TensorDesc for LoadNDOp should be a 2D/1D TensorDesc.");
+        "The TensorDesc for LoadNDOp should be a 2D TensorDesc.");
 
   if (!valueTy)
     return emitOpError("Invalid result, it should be a VectorType.\n");
@@ -821,31 +806,6 @@ LogicalResult LoadNDOp::verify() {
   if (tdescElemTy != valueElemTy)
     return emitOpError(
         "Value should have the same element type as TensorDesc.");
-
-  if (tdescTy.getRank() == 2) {
-    // TODO: The following logic are architecture
-    // dependent, pending to be moved out
-    auto width = tdescTy.getShape()[1];
-    auto height = tdescTy.getShape()[0];
-    auto elemTyByteWidth = tdescElemTy.getIntOrFloatBitWidth() / 8;
-
-    if (width < MIN_2D_BLOCK_WIDTH_IN_ELEMENTS ||
-        width > MAX_2D_BLOCK_WIDTH_IN_ELEMENTS ||
-        (width * elemTyByteWidth) % 4 != 0) {
-      return emitOpError(
-          "Invalid width size for 2D block load.  "
-          "The specification expects the value to "
-          "be in range [1, 64], and The the total "
-          "data size (width * elemTyBytes) to be multiple of 4.\n");
-    }
-
-    if (height < MIN_2D_BLOCK_HEIGHT_IN_ELEMENTS ||
-        height > MAX_2D_BLOCK_HEIGHT_IN_ELEMENTS) {
-      return emitOpError("Invalid height size for 2D block load. The "
-                         "specification expects the "
-                         "value to be in range [1, 32].\n");
-    }
-  }
 
   auto mode = getMode();
   auto tdescShape = tdescTy.getShape().vec();
@@ -993,10 +953,10 @@ void StoreNDOp::print(OpAsmPrinter &printer) {
 }
 
 LogicalResult StoreNDOp::verify() {
-  auto dstTy = getTensorDesc().getType();                              // Tile
+  auto dstTy = getTensorDesc().getType();                        // Tile
   auto valTy = llvm::dyn_cast<VectorType>(getValue().getType()); // Vector
 
-  if (dstTy.getRank() > 2)
+  if (dstTy.getRank() != 2)
     return emitOpError(
         "The TensorDesc for StoreNdOp should be a 2D TensorDesc.");
 
@@ -1009,30 +969,6 @@ LogicalResult StoreNDOp::verify() {
   if (dstElemTy != valElemTy) {
     return emitOpError("The elem type of value (vector) shape doesn't match "
                        "the elem type of memory (dst) shape.\n");
-  }
-
-  if (dstTy.getRank() == 2) { // TODO: The following logic are architecture
-                              // dependent, pending to be moved
-    // out
-    auto width = dstTy.getShape()[1];
-    auto height = dstTy.getShape()[0];
-    auto elemTyByteWidth = dstElemTy.getIntOrFloatBitWidth() / 8;
-    if (width < MIN_2D_BLOCK_WIDTH_IN_ELEMENTS ||
-        width > MAX_2D_BLOCK_WIDTH_IN_ELEMENTS ||
-        (width * elemTyByteWidth) % 4 != 0) {
-      return emitOpError(
-          "Invalid width size for 2D block write. "
-          "The specification expects the value to "
-          "be in range [1, 64], and The the total "
-          "data size (width * elemTyBytes) to be multiple of 4.\n");
-    }
-
-    if (height < MIN_2D_BLOCK_HEIGHT_IN_ELEMENTS ||
-        height > MAX_2D_BLOCK_HEIGHT_IN_ELEMENTS) {
-      return emitOpError(
-          "Invalid height size for 2D block write. The specification"
-          "expects the value to be in range [1, 32].\n");
-    }
   }
 
   auto mode = getMode();
@@ -1285,7 +1221,7 @@ LogicalResult LoadGatherOp::verify() {
       return llvm::dyn_cast<VectorType>(type).getElementType();
     else if (llvm::isa<TensorDescType>(type))
       return llvm::dyn_cast<TensorDescType>(type).getElementType();
-    assert(0 && "Unreachable !!!");
+    llvm_unreachable("Unsupported type."); 
     return type;
   };
 
@@ -1295,19 +1231,20 @@ LogicalResult LoadGatherOp::verify() {
     return emitOpError(
         "Value should have the same element type as TensorDesc.");
 
-  auto getShape = [&](Type type, std::vector<int64_t> &shape) -> void {
+  auto getShape = [&](Type type) -> std::vector<int64_t> {
+    std::vector<int64_t> shape;
     if (type.isIntOrIndexOrFloat())
       shape.push_back(1);
     else if (llvm::isa<VectorType>(type))
       shape = llvm::dyn_cast<VectorType>(type).getShape().vec();
     else
-      assert(0 && "Unreachable !!!");
+      llvm_unreachable("Unsupported type."); 
+    return shape;
   };
 
-  std::vector<int64_t> maskShape, valueShape;
-  getShape(maskTy, maskShape);
-  getShape(valueTy, valueShape);
-  auto tdescShape = tdescTy.getShape().vec();
+  std::vector<int64_t> maskShape = getShape(maskTy);
+  std::vector<int64_t> valueShape = getShape(valueTy);
+  std::vector<int64_t> tdescShape = tdescTy.getShape().vec();
 
   if (tdescShape != maskShape)
     return emitOpError("Mask should have the same shape as TensorDesc.");
@@ -1508,39 +1445,37 @@ void StoreScatterOp::print(OpAsmPrinter &printer) {
 }
 
 LogicalResult StoreScatterOp::verify() {
-  auto valueTy = getValue().getType();
   auto tdescTy = getTensorDesc().getType();
+  auto valueTy = getValue().getType();
   auto maskTy = getMask().getType();
+  auto mode = getMode();
+  auto mapping = tdescTy.getMapping();
+
+  if (mode != Mode::VC || mapping) 
+    return emitOpError("StoreScatterOp only supports VC mode and mapping "
+                       "attribute of TensorDesc is not expected.\n");
 
   if (!tdescTy.getScattered())
     return emitOpError("Invalid TensorDesc. StoreScatterOp only works on "
                        "TensorDescs with ScatteredAttr.");
 
-  std::vector<int64_t> valueShape, maskShape;
-  auto getShape = [&](Type type, std::vector<int64_t> &shape) -> void {
+  auto getShape = [&](Type type) -> std::vector<int64_t> {
+    std::vector<int64_t> shape;
     if (type.isIntOrIndexOrFloat())
       shape.push_back(1);
     else if (llvm::isa<VectorType>(type))
       shape = llvm::dyn_cast<VectorType>(type).getShape().vec();
     else
-      assert(0 && "Unreachable !!!");
+      llvm_unreachable("Unsupported type."); 
+    return shape;
   };
 
-  getShape(valueTy, valueShape);
-  getShape(maskTy, maskShape);
+  std::vector<int64_t> maskShape = getShape(maskTy);
+  std::vector<int64_t> valueShape = getShape(valueTy);
+  std::vector<int64_t> tdescShape = tdescTy.getShape().vec();
 
   if (valueShape != maskShape) {
     return emitOpError("Mask and value should have the same shape/size");
-  }
-
-  auto tdescShape = tdescTy.getShape().vec();
-
-  auto mode = getMode();
-  auto mapping = tdescTy.getMapping();
-
-  if (mode != Mode::VC || mapping) {
-    return emitOpError("StoreScatterOp only supports VC mode and mapping "
-                       "attribute of TensorDesc is not expected.\n");
   }
 
   if (tdescShape != valueShape) {
