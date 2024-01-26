@@ -143,3 +143,27 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
     __DEFAULT_ROCM_PATH__="${DEFAULT_ROCM_PATH}"
   )
 endif()
+
+if (MLIR_ENABLE_SPIRV_CONVERSIONS)
+  set(SPIRV_LIBS
+    SPIRVCodeGen
+    SPIRVDesc
+    SPIRVInfo
+  )
+endif()
+
+add_mlir_dialect_library(MLIRSPIR64Target
+  SPIR64/Target.cpp
+
+  LINK_COMPONENTS
+  MCParser
+  ${SPIRV_LIBS}
+
+  LINK_LIBS PUBLIC
+  MLIRIR
+  MLIRExecutionEngineUtils
+  MLIRSupport
+  MLIRGPUDialect
+  MLIRTargetLLVM
+  MLIRSPIR64ToLLVMIRTranslation
+  )
