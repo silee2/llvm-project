@@ -246,3 +246,6 @@ if config.run_cuda_tests:
 
 if config.run_rocm_tests:
     config.available_features.add("host-supports-amdgpu")
+
+if config.run_spirv_tests:
+    config.available_features.add("host-supports-spirv")
