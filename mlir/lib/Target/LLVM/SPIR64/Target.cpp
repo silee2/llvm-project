@@ -154,11 +154,6 @@ gpu::GPUModuleOp SPIRVSerializer::getOperation() {
 }
 
 std::optional<SmallVector<char, 0>>
-SPIRVSerializer::compileToBinary(const std::string &serializedISA) {
-  return std::nullopt;
-}
-
-std::optional<SmallVector<char, 0>>
 SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   // Return LLVM IR if the compilation target is offload.
 #define DEBUG_TYPE "serialize-to-llvm"
@@ -197,7 +192,10 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     return SmallVector<char, 0>(serializedISA->begin(), serializedISA->end());
 
   // Compile to binary.
-  return compileToBinary(*serializedISA);
+  // Not implemented.
+  getOperation().emitError() << "Compiling `SPIRV` target is not implemented. "
+                             << "Use different compilation target.";
+  return std::nullopt;
 }
 #endif // MLIR_SPIRV_CONVERSIONS_ENABLED
 
