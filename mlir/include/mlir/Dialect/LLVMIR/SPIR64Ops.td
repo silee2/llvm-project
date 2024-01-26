@@ -79,7 +79,7 @@ def SPIR64_TargettAttr :
   }];
   let parameters = (ins
     DefaultValuedParameter<"int", "2", "Optimization level to apply.">:$O,
-    StringRefParameter<"Target triple.", "\"spirv-unknown-unknown\"">:$triple,
+    StringRefParameter<"Target triple.", "\"spirv64-unknown-unknown\"">:$triple,
     StringRefParameter<"Target chip.", "\"\"">:$chip,
     StringRefParameter<"Target chip features.", "\"\"">:$features,
     OptionalParameter<"DictionaryAttr", "Target specific flags.">:$flags,
@@ -90,7 +90,7 @@ def SPIR64_TargettAttr :
   }];
   let builders = [
     AttrBuilder<(ins CArg<"int", "2">:$optLevel,
-                     CArg<"StringRef", "\"spirv-unknown-unknown\"">:$triple,
+                     CArg<"StringRef", "\"spirv64-unknown-unknown\"">:$triple,
                      CArg<"StringRef", "\"\"">:$chip,
                      CArg<"StringRef", "\"\"">:$features,
                      CArg<"DictionaryAttr", "nullptr">:$targetFlags,
