@@ -15,6 +15,7 @@
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/SPIR64Dialect.h"
+#include "mlir/Target/LLVM/SPIR64/Utils.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
@@ -64,14 +65,14 @@ public:
 } // namespace
 
 // Register the SPIR64 dialect, the SPIR64 translation and the target interface.
-void mlir::SPIR64::registerSPIR64TargetInterfaceExternalModels(
+void mlir::spir64::registerSPIR64TargetInterfaceExternalModels(
     DialectRegistry &registry) {
-  registry.addExtension(+[](MLIRContext *ctx, SPIR64::SPIR64Dialect *dialect) {
+  registry.addExtension(+[](MLIRContext *ctx, spir64::SPIR64Dialect *dialect) {
     SPIR64TargetAttr::attachInterface<SPIR64TargetAttrImpl>(*ctx);
   });
 }
 
-void mlir::SPIR64::registerSPIR64TargetInterfaceExternalModels(
+void mlir::spir64::registerSPIR64TargetInterfaceExternalModels(
     MLIRContext &context) {
   DialectRegistry registry;
   registerSPIR64TargetInterfaceExternalModels(registry);
@@ -101,7 +102,6 @@ void SerializeGPUModuleBase::init() {
     LLVMInitializeSPIRVTarget();
     LLVMInitializeSPIRVTargetInfo();
     LLVMInitializeSPIRVTargetMC();
-    LLVMInitializeSPIRVAsmParser();
     LLVMInitializeSPIRVAsmPrinter();
 #endif
   });
@@ -120,157 +120,6 @@ SerializeGPUModuleBase::loadBitcodeFiles(llvm::Module &module) {
                                       true)))
     return std::nullopt;
   return std::move(bcFiles);
-}
-
-LogicalResult SerializeGPUModuleBase::handleBitcodeFile(llvm::Module &module) {
-  // Some SPIRV builds don't strip this like they should
-  if (auto *openclVersion = module.getNamedMetadata("opencl.ocl.version"))
-    module.eraseNamedMetadata(openclVersion);
-  // Stop spamming us with clang version numbers
-  if (auto *ident = module.getNamedMetadata("llvm.ident"))
-    module.eraseNamedMetadata(ident);
-  return success();
-}
-
-void SerializeGPUModuleBase::handleModulePreLink(llvm::Module &module) {
-  [[maybe_unused]] std::optional<llvm::TargetMachine *> targetMachine =
-      getOrCreateTargetMachine();
-  assert(targetMachine && "expect a TargetMachine");
-  addControlVariables(module, target.hasWave64(), target.hasDaz(),
-                      target.hasFiniteOnly(), target.hasUnsafeMath(),
-                      target.hasFastMath(), target.hasCorrectSqrt(),
-                      target.getAbi());
-}
-
-// Get the paths of ROCm device libraries.
-LogicalResult SerializeGPUModuleBase::getCommonBitcodeLibs(
-    llvm::SmallVector<std::string> &libs, SmallVector<char, 256> &libPath,
-    StringRef isaVersion) {
-  auto addLib = [&](StringRef path) -> bool {
-    if (!llvm::sys::fs::is_regular_file(path)) {
-      getOperation().emitRemark() << "Bitcode library path: " << path
-                                  << " does not exist or is not a file.\n";
-      return true;
-    }
-    libs.push_back(path.str());
-    return false;
-  };
-  auto getLibPath = [&libPath](Twine lib) {
-    auto baseSize = libPath.size();
-    llvm::sys::path::append(libPath, lib + ".bc");
-    std::string path(StringRef(libPath.data(), libPath.size()).str());
-    libPath.truncate(baseSize);
-    return path;
-  };
-
-  // Add ROCm device libraries. Fail if any of the libraries is not found.
-  if (addLib(getLibPath("ocml")) || addLib(getLibPath("ockl")) ||
-      addLib(getLibPath("hip")) || addLib(getLibPath("opencl")) ||
-      addLib(getLibPath("oclc_isa_version_" + isaVersion)))
-    return failure();
-  return success();
-}
-
-void SerializeGPUModuleBase::addControlVariables(
-    llvm::Module &module, bool wave64, bool daz, bool finiteOnly,
-    bool unsafeMath, bool fastMath, bool correctSqrt, StringRef abiVer) {
-  llvm::Type *i8Ty = llvm::Type::getInt8Ty(module.getContext());
-  auto addControlVariable = [i8Ty, &module](StringRef name, bool enable) {
-    llvm::GlobalVariable *controlVariable = new llvm::GlobalVariable(
-        module, i8Ty, true, llvm::GlobalValue::LinkageTypes::LinkOnceODRLinkage,
-        llvm::ConstantInt::get(i8Ty, enable), name, nullptr,
-        llvm::GlobalValue::ThreadLocalMode::NotThreadLocal, 4);
-    controlVariable->setVisibility(
-        llvm::GlobalValue::VisibilityTypes::ProtectedVisibility);
-    controlVariable->setAlignment(llvm::MaybeAlign(1));
-    controlVariable->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Local);
-  };
-  addControlVariable("__oclc_finite_only_opt", finiteOnly || fastMath);
-  addControlVariable("__oclc_unsafe_math_opt", unsafeMath || fastMath);
-  addControlVariable("__oclc_daz_opt", daz || fastMath);
-  addControlVariable("__oclc_correctly_rounded_sqrt32",
-                     correctSqrt && !fastMath);
-  addControlVariable("__oclc_wavefrontsize64", wave64);
-
-  llvm::Type *i32Ty = llvm::Type::getInt32Ty(module.getContext());
-  int abi = 500;
-  abiVer.getAsInteger(0, abi);
-  llvm::GlobalVariable *abiVersion = new llvm::GlobalVariable(
-      module, i32Ty, true, llvm::GlobalValue::LinkageTypes::LinkOnceODRLinkage,
-      llvm::ConstantInt::get(i32Ty, abi), "__oclc_ABI_version", nullptr,
-      llvm::GlobalValue::ThreadLocalMode::NotThreadLocal, 4);
-  abiVersion->setVisibility(
-      llvm::GlobalValue::VisibilityTypes::ProtectedVisibility);
-  abiVersion->setAlignment(llvm::MaybeAlign(4));
-  abiVersion->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Local);
-}
-
-std::optional<SmallVector<char, 0>>
-SerializeGPUModuleBase::assembleIsa(StringRef isa) {
-  auto loc = getOperation().getLoc();
-
-  StringRef targetTriple = this->triple;
-
-  SmallVector<char, 0> result;
-  llvm::raw_svector_ostream os(result);
-
-  llvm::Triple triple(llvm::Triple::normalize(targetTriple));
-  std::string error;
-  const llvm::Target *target =
-      llvm::TargetRegistry::lookupTarget(triple.normalize(), error);
-  if (!target) {
-    emitError(loc, Twine("failed to lookup target: ") + error);
-    return std::nullopt;
-  }
-
-  llvm::SourceMgr srcMgr;
-  srcMgr.AddNewSourceBuffer(llvm::MemoryBuffer::getMemBuffer(isa), SMLoc());
-
-  const llvm::MCTargetOptions mcOptions;
-  std::unique_ptr<llvm::MCRegisterInfo> mri(
-      target->createMCRegInfo(targetTriple));
-  std::unique_ptr<llvm::MCAsmInfo> mai(
-      target->createMCAsmInfo(*mri, targetTriple, mcOptions));
-  mai->setRelaxELFRelocations(true);
-  std::unique_ptr<llvm::MCSubtargetInfo> sti(
-      target->createMCSubtargetInfo(targetTriple, chip, features));
-
-  llvm::MCContext ctx(triple, mai.get(), mri.get(), sti.get(), &srcMgr,
-                      &mcOptions);
-  std::unique_ptr<llvm::MCObjectFileInfo> mofi(target->createMCObjectFileInfo(
-      ctx, /*PIC=*/false, /*LargeCodeModel=*/false));
-  ctx.setObjectFileInfo(mofi.get());
-
-  SmallString<128> cwd;
-  if (!llvm::sys::fs::current_path(cwd))
-    ctx.setCompilationDir(cwd);
-
-  std::unique_ptr<llvm::MCStreamer> mcStreamer;
-  std::unique_ptr<llvm::MCInstrInfo> mcii(target->createMCInstrInfo());
-
-  llvm::MCCodeEmitter *ce = target->createMCCodeEmitter(*mcii, ctx);
-  llvm::MCAsmBackend *mab = target->createMCAsmBackend(*sti, *mri, mcOptions);
-  mcStreamer.reset(target->createMCObjectStreamer(
-      triple, ctx, std::unique_ptr<llvm::MCAsmBackend>(mab),
-      mab->createObjectWriter(os), std::unique_ptr<llvm::MCCodeEmitter>(ce),
-      *sti, mcOptions.MCRelaxAll, mcOptions.MCIncrementalLinkerCompatible,
-      /*DWARFMustBeAtTheEnd*/ false));
-  mcStreamer->setUseAssemblerInfoForParsing(true);
-
-  std::unique_ptr<llvm::MCAsmParser> parser(
-      createMCAsmParser(srcMgr, ctx, *mcStreamer, *mai));
-  std::unique_ptr<llvm::MCTargetAsmParser> tap(
-      target->createMCAsmParser(*sti, *parser, *mcii, mcOptions));
-
-  if (!tap) {
-    emitError(loc, "assembler initialization error");
-    return {};
-  }
-
-  parser->setTargetParser(*tap);
-  parser->Run(false);
-
-  return result;
 }
 
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1
@@ -306,62 +155,7 @@ gpu::GPUModuleOp SPIRVSerializer::getOperation() {
 
 std::optional<SmallVector<char, 0>>
 SPIRVSerializer::compileToBinary(const std::string &serializedISA) {
-  // Assemble the ISA.
-  std::optional<SmallVector<char, 0>> isaBinary = assembleIsa(serializedISA);
-
-  if (!isaBinary) {
-    getOperation().emitError() << "Failed during ISA assembling.";
-    return std::nullopt;
-  }
-
-  // Save the ISA binary to a temp file.
-  int tempIsaBinaryFd = -1;
-  SmallString<128> tempIsaBinaryFilename;
-  if (llvm::sys::fs::createTemporaryFile("kernel%%", "o", tempIsaBinaryFd,
-                                         tempIsaBinaryFilename)) {
-    getOperation().emitError()
-        << "Failed to create a temporary file for dumping the ISA binary.";
-    return std::nullopt;
-  }
-  llvm::FileRemover cleanupIsaBinary(tempIsaBinaryFilename);
-  {
-    llvm::raw_fd_ostream tempIsaBinaryOs(tempIsaBinaryFd, true);
-    tempIsaBinaryOs << StringRef(isaBinary->data(), isaBinary->size());
-    tempIsaBinaryOs.flush();
-  }
-
-  // Create a temp file for HSA code object.
-  SmallString<128> tempHsacoFilename;
-  if (llvm::sys::fs::createTemporaryFile("kernel", "hsaco",
-                                         tempHsacoFilename)) {
-    getOperation().emitError()
-        << "Failed to create a temporary file for the HSA code object.";
-    return std::nullopt;
-  }
-  llvm::FileRemover cleanupHsaco(tempHsacoFilename);
-
-  llvm::SmallString<128> lldPath(toolkitPath);
-  llvm::sys::path::append(lldPath, "llvm", "bin", "ld.lld");
-  int lldResult = llvm::sys::ExecuteAndWait(
-      lldPath,
-      {"ld.lld", "-shared", tempIsaBinaryFilename, "-o", tempHsacoFilename});
-  if (lldResult != 0) {
-    getOperation().emitError() << "lld invocation failed.";
-    return std::nullopt;
-  }
-
-  // Load the HSA code object.
-  auto hsacoFile =
-      llvm::MemoryBuffer::getFile(tempHsacoFilename, /*IsText=*/false);
-  if (!hsacoFile) {
-    getOperation().emitError()
-        << "Failed to read the HSA code object from the temp file.";
-    return std::nullopt;
-  }
-
-  StringRef buffer = (*hsacoFile)->getBuffer();
-
-  return SmallVector<char, 0>(buffer.begin(), buffer.end());
+  return std::nullopt;
 }
 
 std::optional<SmallVector<char, 0>>
