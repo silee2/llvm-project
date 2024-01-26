@@ -57,13 +57,6 @@ void SPIR64Dialect::initialize() {
 
 LogicalResult SPIR64Dialect::verifyOperationAttribute(Operation *op,
                                                      NamedAttribute attr) {
-  // Kernel function attribute should be attached to functions.
-  if (attr.getName() == SPIR64Dialect::getKernelFuncAttrName()) {
-    if (!isa<LLVM::LLVMFuncOp>(op)) {
-      return op->emitError() << "'" << SPIR64Dialect::getKernelFuncAttrName()
-                             << "' attribute attached to unexpected op";
-    }
-  }
   return success();
 }
 
