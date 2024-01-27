@@ -98,6 +98,12 @@ protected:
   static std::optional<std::string>
   translateToISA(llvm::Module &llvmModule, llvm::TargetMachine &targetMachine);
 
+  /// Utility function for translating to ISA binary, returns `std::nullopt` on
+  /// failure.
+  static std::optional<std::string>
+  translateToISABinary(llvm::Module &llvmModule,
+                       llvm::TargetMachine &targetMachine);
+
 protected:
   /// Module to transform to a binary object.
   Operation &module;

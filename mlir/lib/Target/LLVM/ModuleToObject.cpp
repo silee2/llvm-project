@@ -185,6 +185,25 @@ ModuleToObject::translateToISA(llvm::Module &llvmModule,
   return stream.str();
 }
 
+std::optional<std::string>
+ModuleToObject::translateToISABinary(llvm::Module &llvmModule,
+                                     llvm::TargetMachine &targetMachine) {
+  std::string targetISA;
+  llvm::raw_string_ostream stream(targetISA);
+
+  { // Drop pstream after this to prevent the ISA from being stuck buffering
+    llvm::buffer_ostream pstream(stream);
+    llvm::legacy::PassManager codegenPasses;
+
+    if (targetMachine.addPassesToEmitFile(codegenPasses, pstream, nullptr,
+                                          llvm::CodeGenFileType::ObjectFile))
+      return std::nullopt;
+
+    codegenPasses.run(llvmModule);
+  }
+  return stream.str();
+}
+
 void ModuleToObject::setDataLayoutAndTriple(llvm::Module &module) {
   // Create the target machine.
   std::optional<llvm::TargetMachine *> targetMachine =

@@ -82,10 +82,9 @@ void mlir::spir64::registerSPIR64TargetInterfaceExternalModels(
 SerializeGPUModuleBase::SerializeGPUModuleBase(
     Operation &module, SPIR64TargetAttr target,
     const gpu::TargetOptions &targetOptions)
-    : ModuleToObject(module, target.getTriple(), target.getChip(),
-                     target.getFeatures(), target.getO()),
-      target(target),
-      fileList(targetOptions.getLinkFiles()) {
+    : ModuleToObject(module, target.getTriple(), "", target.getFeatures(),
+                     target.getO()),
+      target(target), fileList(targetOptions.getLinkFiles()) {
 
   // Append the files in the target attribute.
   if (ArrayAttr files = target.getLink())
@@ -174,13 +173,15 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     return std::nullopt;
   }
 
-  // Translate the Module to ISA.
-  std::optional<std::string> serializedISA =
-      translateToISA(llvmModule, **targetMachine);
-  if (!serializedISA) {
-    getOperation().emitError() << "Failed translating the module to ISA.";
-    return std::nullopt;
-  }
+  if (targetOptions.getCompilationTarget() ==
+      gpu::CompilationTarget::Assembly) {
+    // Translate the Module to ISA.
+    std::optional<std::string> serializedISA =
+        translateToISA(llvmModule, **targetMachine);
+    if (!serializedISA) {
+      getOperation().emitError() << "Failed translating the module to ISA.";
+      return std::nullopt;
+    }
 #define DEBUG_TYPE "serialize-to-isa"
   LLVM_DEBUG({
     llvm::dbgs() << "ISA for module: " << getOperation().getNameAttr() << "\n"
@@ -188,8 +189,28 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   });
 #undef DEBUG_TYPE
   // Return ISA assembly code if the compilation target is assembly.
-  if (targetOptions.getCompilationTarget() == gpu::CompilationTarget::Assembly)
-    return SmallVector<char, 0>(serializedISA->begin(), serializedISA->end());
+  return SmallVector<char, 0>(serializedISA->begin(), serializedISA->end());
+  }
+
+  if (targetOptions.getCompilationTarget() == gpu::CompilationTarget::Binary) {
+    // Translate the Module to ISA binary.
+    std::optional<std::string> serializedISABinary =
+        translateToISABinary(llvmModule, **targetMachine);
+    if (!serializedISABinary) {
+      getOperation().emitError() << "Failed translating the module to Binary.";
+      return std::nullopt;
+    }
+#define DEBUG_TYPE "serialize-to-binary"
+    LLVM_DEBUG({
+      llvm::dbgs() << "ISA binary for module: " << getOperation().getNameAttr()
+                   << "\n"
+                   << *serializedISABinary << "\n";
+    });
+#undef DEBUG_TYPE
+    // Return ISA assembly code if the compilation target is assembly.
+    return SmallVector<char, 0>(serializedISABinary->begin(),
+                                serializedISABinary->end());
+  }
 
   // Compile to binary.
   // Not implemented.
