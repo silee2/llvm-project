@@ -63,11 +63,10 @@ LogicalResult SPIR64Dialect::verifyOperationAttribute(Operation *op,
 //===----------------------------------------------------------------------===//
 // SPIR64 target attribute.
 //===----------------------------------------------------------------------===//
-LogicalResult
-SPIR64TargetAttr::verify(function_ref<InFlightDiagnostic()> emitError,
-                        int optLevel, StringRef triple, StringRef chip,
-                        StringRef features,
-                        DictionaryAttr flags, ArrayAttr files) {
+LogicalResult SPIR64TargetAttr::verify(
+    function_ref<InFlightDiagnostic()> emitError, int optLevel,
+    StringRef triple, StringRef chip, StringRef features, DictionaryAttr flags,
+    ArrayAttr files, std::optional<spirv::VerCapExtAttr> vce_triple) {
   if (optLevel < 0 || optLevel > 3) {
     emitError() << "The optimization level must be a number between 0 and 3.";
     return failure();

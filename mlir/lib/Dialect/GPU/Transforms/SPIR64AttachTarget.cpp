@@ -1,0 +1,110 @@
+//===- SPIR64AttachTarget.cpp - Attach an SPIR64 target
+//-----------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This file implements the `GpuSPIR64AttachTarget` pass, attaching
+// `#nvvm.target` attributes to GPU modules.
+//
+//===----------------------------------------------------------------------===//
+
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
+
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/SPIR64Dialect.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVAttributes.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
+#include "mlir/Dialect/SPIRV/IR/TargetAndABI.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Target/LLVM/SPIR64/Target.h"
+#include "llvm/Support/Regex.h"
+
+namespace mlir {
+#define GEN_PASS_DEF_GPUSPIR64ATTACHTARGET
+#include "mlir/Dialect/GPU/Transforms/Passes.h.inc"
+} // namespace mlir
+
+using namespace mlir;
+using namespace mlir::spir64;
+using namespace mlir::spirv;
+
+namespace {
+struct SPIR64AttachTarget
+    : public impl::GpuSPIR64AttachTargetBase<SPIR64AttachTarget> {
+  using Base::Base;
+
+  DictionaryAttr getFlags(OpBuilder &builder) const;
+
+  void runOnOperation() override;
+
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<spir64::SPIR64Dialect>();
+    registry.insert<spirv::SPIRVDialect>();
+  }
+};
+} // namespace
+
+DictionaryAttr SPIR64AttachTarget::getFlags(OpBuilder &builder) const {
+  UnitAttr unitAttr = builder.getUnitAttr();
+  SmallVector<NamedAttribute, 2> flags;
+  auto addFlag = [&](StringRef flag) {
+    flags.push_back(builder.getNamedAttr(flag, unitAttr));
+  };
+  if (!flags.empty())
+    return builder.getDictionaryAttr(flags);
+  return nullptr;
+}
+
+void SPIR64AttachTarget::runOnOperation() {
+  OpBuilder builder(&getContext());
+  ArrayRef<std::string> libs(linkLibs);
+  SmallVector<StringRef> filesToLink(libs.begin(), libs.end());
+
+  auto versionSymbol = symbolizeVersion(spirvVersion);
+  if (!versionSymbol)
+    return signalPassFailure();
+  Version version = versionSymbol.value();
+  SmallVector<Capability, 4> capabilities;
+  SmallVector<Extension, 8> extensions;
+  for (const auto &cap : spirvCapabilities) {
+    auto capSymbol = symbolizeCapability(cap);
+    if (capSymbol)
+      capabilities.push_back(capSymbol.value());
+  }
+  ArrayRef<Capability> caps(capabilities);
+  for (const auto &ext : spirvExtensions) {
+    auto extSymbol = symbolizeExtension(ext);
+    if (extSymbol)
+      extensions.push_back(extSymbol.value());
+  }
+  ArrayRef<Extension> exts(extensions);
+  VerCapExtAttr vce = VerCapExtAttr::get(version, caps, exts, &getContext());
+
+  auto target = builder.getAttr<SPIR64TargetAttr>(
+      optLevel, triple, chip, features, getFlags(builder),
+      filesToLink.empty() ? nullptr : builder.getStrArrayAttr(filesToLink),
+      vce);
+  llvm::Regex matcher(moduleMatcher);
+  for (Region &region : getOperation()->getRegions())
+    for (Block &block : region.getBlocks())
+      for (auto module : block.getOps<gpu::GPUModuleOp>()) {
+        // Check if the name of the module matches.
+        if (!moduleMatcher.empty() && !matcher.match(module.getName()))
+          continue;
+        // Create the target array.
+        SmallVector<Attribute> targets;
+        if (std::optional<ArrayAttr> attrs = module.getTargets())
+          targets.append(attrs->getValue().begin(), attrs->getValue().end());
+        targets.push_back(target);
+        // Remove any duplicate targets.
+        targets.erase(std::unique(targets.begin(), targets.end()),
+                      targets.end());
+        // Update the target attribute array.
+        module.setTargetsAttr(builder.getArrayAttr(targets));
+      }
+}

@@ -15,6 +15,7 @@
 
 include "mlir/Dialect/GPU/IR/CompilationAttrInterfaces.td"
 include "mlir/Dialect/LLVMIR/LLVMOpBase.td"
+include "mlir/Dialect/SPIRV/IR/SPIRVBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
@@ -83,10 +84,11 @@ def SPIR64_TargettAttr :
     StringRefParameter<"Target chip.", "\"\"">:$chip,
     StringRefParameter<"Target chip features.", "\"\"">:$features,
     OptionalParameter<"DictionaryAttr", "Target specific flags.">:$flags,
-    OptionalParameter<"ArrayAttr", "Files to link to the LLVM module.">:$link
+    OptionalParameter<"ArrayAttr", "Files to link to the LLVM module.">:$link,
+    OptionalParameter<"std::optional<spirv::VerCapExtAttr>", "SPIR-V vce triple.">:$vce
   );
   let assemblyFormat = [{
-    (`<` struct($O, $triple, $chip, $features, $flags, $link)^ `>`)?
+    (`<` struct($O, $triple, $chip, $features, $flags, $link, $vce)^ `>`)?
   }];
   let builders = [
     AttrBuilder<(ins CArg<"int", "2">:$optLevel,
@@ -94,9 +96,10 @@ def SPIR64_TargettAttr :
                      CArg<"StringRef", "\"\"">:$chip,
                      CArg<"StringRef", "\"\"">:$features,
                      CArg<"DictionaryAttr", "nullptr">:$targetFlags,
-                     CArg<"ArrayAttr", "nullptr">:$linkFiles), [{
+                     CArg<"ArrayAttr", "nullptr">:$linkFiles,
+                     CArg<"std::optional<spirv::VerCapExtAttr>", "std::nullopt">:$vceTriple), [{
       return Base::get($_ctxt, optLevel, triple, chip, features,
-                       targetFlags, linkFiles);
+                       targetFlags, linkFiles, vceTriple);
     }]>
   ];
   let skipDefaultBuilders = 1;

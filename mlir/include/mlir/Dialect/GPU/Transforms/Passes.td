@@ -250,4 +250,50 @@ def GpuSPIRVAttachTarget: Pass<"spirv-attach-target", ""> {
   ];
 }
 
+def GpuSPIR64AttachTarget: Pass<"spir64-attach-target", ""> {
+  let summary = "Attaches an SPIR64 target attribute to a GPU Module.";
+  let description = [{
+    This pass searches for all GPU Modules in the immediate regions and attaches
+    an SPIR64 target if the module matches the name specified by the `module` argument.
+
+    Example:
+    ```
+    // File: in.mlir:
+    gpu.module @spir64_module_1 {...}
+    gpu.module @spir64_module_2 {...}
+    gpu.module @rocdl_module_1 {...}
+    // mlir-opt --spir64-attach-target="module=spir64.* chip=XeHPC" in.mlir
+    gpu.module @spir64_module_1 [#spir64.target<chip = "XeHPC">] {...}
+    gpu.module @spir64_module_2 [#spir64.target<chip = "XeHPC">] {...}
+    gpu.module @rocdl_module_1 {...}
+    ```
+  }];
+  let options = [
+    Option<"moduleMatcher", "module", "std::string",
+           /*default=*/ [{""}],
+           "Regex used to identify the modules to attach the target to.">,
+    Option<"triple", "triple", "std::string",
+           /*default=*/ "\"spirv64-unknown-unknown\"",
+           "Target triple.">,
+    Option<"chip", "chip", "std::string",
+           /*default=*/"\"\"",
+           "Target chip.">,
+    Option<"features", "features", "std::string",
+           /*default=*/"\"\"",
+           "Target features.">,
+    Option<"optLevel", "O", "unsigned",
+           /*default=*/"2",
+           "Optimization level.">,
+    ListOption<"linkLibs", "l", "std::string",
+           "Extra bitcode libraries paths to link to.">,
+    Option<"spirvVersion", "ver", "std::string",
+           /*default=*/ "\"v1.0\"",
+           "SPIR-V Version.">,
+    ListOption<"spirvCapabilities", "caps", "std::string",
+           "List of supported SPIR-V Capabilities">,
+    ListOption<"spirvExtensions", "exts", "std::string",
+           "List of supported SPIR-V Extensions">,
+  ];
+}
+
 #endif // MLIR_DIALECT_GPU_PASSES
