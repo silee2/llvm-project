@@ -81,7 +81,7 @@ def SPIR64_TargettAttr :
   let parameters = (ins
     DefaultValuedParameter<"int", "2", "Optimization level to apply.">:$O,
     StringRefParameter<"Target triple.", "\"spirv64-unknown-unknown\"">:$triple,
-    StringRefParameter<"Target chip.", "\"\"">:$chip,
+    StringRefParameter<"Target chip.", "\"unknown\"">:$chip,
     StringRefParameter<"Target chip features.", "\"\"">:$features,
     OptionalParameter<"DictionaryAttr", "Target specific flags.">:$flags,
     OptionalParameter<"ArrayAttr", "Files to link to the LLVM module.">:$link,
@@ -93,7 +93,7 @@ def SPIR64_TargettAttr :
   let builders = [
     AttrBuilder<(ins CArg<"int", "2">:$optLevel,
                      CArg<"StringRef", "\"spirv64-unknown-unknown\"">:$triple,
-                     CArg<"StringRef", "\"\"">:$chip,
+                     CArg<"StringRef", "\"unknown\"">:$chip,
                      CArg<"StringRef", "\"\"">:$features,
                      CArg<"DictionaryAttr", "nullptr">:$targetFlags,
                      CArg<"ArrayAttr", "nullptr">:$linkFiles,
