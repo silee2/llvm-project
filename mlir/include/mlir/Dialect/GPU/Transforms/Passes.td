@@ -284,6 +284,8 @@ def GpuSPIR64AttachTarget: Pass<"spir64-attach-target", ""> {
     Option<"optLevel", "O", "unsigned",
            /*default=*/"2",
            "Optimization level.">,
+    ListOption<"targetFlags", "flags", "std::string",
+           "Extra target flags.">,
     ListOption<"linkLibs", "l", "std::string",
            "Extra bitcode libraries paths to link to.">,
     Option<"spirvVersion", "ver", "std::string",

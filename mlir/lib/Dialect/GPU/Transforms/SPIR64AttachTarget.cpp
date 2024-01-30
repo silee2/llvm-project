@@ -38,8 +38,6 @@ struct SPIR64AttachTarget
     : public impl::GpuSPIR64AttachTargetBase<SPIR64AttachTarget> {
   using Base::Base;
 
-  DictionaryAttr getFlags(OpBuilder &builder) const;
-
   void runOnOperation() override;
 
   void getDependentDialects(DialectRegistry &registry) const override {
@@ -49,21 +47,19 @@ struct SPIR64AttachTarget
 };
 } // namespace
 
-DictionaryAttr SPIR64AttachTarget::getFlags(OpBuilder &builder) const {
-  UnitAttr unitAttr = builder.getUnitAttr();
-  SmallVector<NamedAttribute, 2> flags;
-  auto addFlag = [&](StringRef flag) {
-    flags.push_back(builder.getNamedAttr(flag, unitAttr));
-  };
-  if (!flags.empty())
-    return builder.getDictionaryAttr(flags);
-  return nullptr;
-}
-
 void SPIR64AttachTarget::runOnOperation() {
   OpBuilder builder(&getContext());
   ArrayRef<std::string> libs(linkLibs);
   SmallVector<StringRef> filesToLink(libs.begin(), libs.end());
+
+  UnitAttr unitAttr = builder.getUnitAttr();
+  SmallVector<NamedAttribute, 6> flags;
+  auto addFlag = [&](StringRef flag) {
+    flags.push_back(builder.getNamedAttr(flag, unitAttr));
+  };
+  for (const auto &flag : targetFlags) {
+    addFlag(flag);
+  }
 
   auto versionSymbol = symbolizeVersion(spirvVersion);
   if (!versionSymbol)
@@ -86,7 +82,8 @@ void SPIR64AttachTarget::runOnOperation() {
   VerCapExtAttr vce = VerCapExtAttr::get(version, caps, exts, &getContext());
 
   auto target = builder.getAttr<SPIR64TargetAttr>(
-      optLevel, triple, chip, features, getFlags(builder),
+      optLevel, triple, chip, features,
+      flags.empty() ? nullptr : builder.getDictionaryAttr(flags),
       filesToLink.empty() ? nullptr : builder.getStrArrayAttr(filesToLink),
       vce);
   llvm::Regex matcher(moduleMatcher);
