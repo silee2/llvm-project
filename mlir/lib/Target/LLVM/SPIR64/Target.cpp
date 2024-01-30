@@ -16,32 +16,12 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/SPIR64Dialect.h"
 #include "mlir/Target/LLVM/SPIR64/Utils.h"
-#include "mlir/Support/FileUtilities.h"
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/SPIR64/SPIR64ToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
-#include "llvm/IR/Constants.h"
-#include "llvm/MC/MCAsmBackend.h"
-#include "llvm/MC/MCAsmInfo.h"
-#include "llvm/MC/MCCodeEmitter.h"
-#include "llvm/MC/MCContext.h"
-#include "llvm/MC/MCInstrInfo.h"
-#include "llvm/MC/MCObjectFileInfo.h"
-#include "llvm/MC/MCObjectWriter.h"
-#include "llvm/MC/MCParser/MCTargetAsmParser.h"
-#include "llvm/MC/MCRegisterInfo.h"
-#include "llvm/MC/MCStreamer.h"
-#include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/TargetRegistry.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/FileUtilities.h"
-#include "llvm/Support/Path.h"
-#include "llvm/Support/Program.h"
-#include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
-#include "llvm/TargetParser/TargetParser.h"
 
 #include <cstdlib>
 #include <optional>
@@ -130,7 +110,6 @@ public:
 
   gpu::GPUModuleOp getOperation();
 
-  // Compile to HSA.
   std::optional<SmallVector<char, 0>>
   compileToBinary(const std::string &serializedISA);
 
@@ -150,6 +129,11 @@ SPIRVSerializer::SPIRVSerializer(Operation &module, SPIR64TargetAttr target,
 
 gpu::GPUModuleOp SPIRVSerializer::getOperation() {
   return dyn_cast<gpu::GPUModuleOp>(&SerializeGPUModuleBase::getOperation());
+}
+
+std::optional<SmallVector<char, 0>>
+compileToBinary(const std::string &serializedISA) {
+  return std::nullopt;
 }
 
 std::optional<SmallVector<char, 0>>
@@ -175,7 +159,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
 
   if (targetOptions.getCompilationTarget() ==
       gpu::CompilationTarget::Assembly) {
-    // Translate the Module to ISA.
+    // Translate the Module to ISA which is SPIR-V text format.
     std::optional<std::string> serializedISA =
         translateToISA(llvmModule, **targetMachine);
     if (!serializedISA) {
@@ -193,7 +177,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   }
 
   if (targetOptions.getCompilationTarget() == gpu::CompilationTarget::Binary) {
-    // Translate the Module to ISA binary.
+    // Translate the Module to ISA binary which is SPIR-V binary format.
     std::optional<std::string> serializedISABinary =
         translateToISABinary(llvmModule, **targetMachine);
     if (!serializedISABinary) {
@@ -212,9 +196,8 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
                                 serializedISABinary->end());
   }
 
-  // Compile to binary.
-  // Not implemented.
-  getOperation().emitError() << "Compiling `SPIRV` target is not implemented. "
+  // Compilation target 'fatbin' is not supported.
+  getOperation().emitError() << "Compilation target 'fatbin` is not supported. "
                              << "Use different compilation target.";
   return std::nullopt;
 }
