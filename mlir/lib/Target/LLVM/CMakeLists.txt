@@ -152,12 +152,35 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
   )
 endif()
 
+if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
+  if (NOT TARGET llvm-spirv)
+    include(FetchContent)
+
+    set(LLVM_SPIRV_INCLUDE_TESTS OFF)
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag(-Wglobal-constructors HAVE_GLOBAL_CONSTRUCTORS)
+    FetchContent_Declare(
+      spirv-llvm-translator
+      GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
+      GIT_TAG main  # This will pull the latest changes from the main branch.
+    )
+    FetchContent_MakeAvailable(spirv-llvm-translator)
+    if (HAVE_GLOBAL_CONSTRUCTORS)
+      target_compile_options(LLVMSPIRVLib PRIVATE -Wno-global-constructors)
+    endif()
+  endif()
+  set(SPIRV_LLVM_LIBS
+      SPIRVLib
+  )
+endif()
+
 add_mlir_dialect_library(MLIRSPIR64Target
   SPIR64/Target.cpp
 
   LINK_COMPONENTS
   MCParser
   ${SPIRV_LIBS}
+  ${SPIRV_LLVM_LIBS}
 
   LINK_LIBS PUBLIC
   MLIRIR
