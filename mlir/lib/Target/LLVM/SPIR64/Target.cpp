@@ -101,7 +101,6 @@ SerializeGPUModuleBase::loadBitcodeFiles(llvm::Module &module) {
   return std::move(bcFiles);
 }
 
-#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1
 namespace {
 class SPIRVSerializer : public SerializeGPUModuleBase {
 public:
@@ -157,6 +156,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     return std::nullopt;
   }
 
+#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1
   if (targetOptions.getCompilationTarget() ==
       gpu::CompilationTarget::Assembly) {
     // Translate the Module to ISA which is SPIR-V text format.
@@ -195,13 +195,13 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     return SmallVector<char, 0>(serializedISABinary->begin(),
                                 serializedISABinary->end());
   }
+#endif // MLIR_SPIRV_CONVERSIONS_ENABLED
 
   // Compilation target 'fatbin' is not supported.
-  getOperation().emitError() << "Compilation target 'fatbin` is not supported. "
+  getOperation().emitError() << "Compilation target is not supported. "
                              << "Use different compilation target.";
   return std::nullopt;
 }
-#endif // MLIR_SPIRV_CONVERSIONS_ENABLED
 
 std::optional<SmallVector<char, 0>> SPIR64TargetAttrImpl::serializeToObject(
     Attribute attribute, Operation *module,
@@ -213,16 +213,10 @@ std::optional<SmallVector<char, 0>> SPIR64TargetAttrImpl::serializeToObject(
     module->emitError("Module must be a GPU module.");
     return std::nullopt;
   }
-#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1
   SPIRVSerializer serializer(*module, cast<SPIR64TargetAttr>(attribute),
                               options);
   serializer.init();
   return serializer.run();
-#else
-  module->emitError("The `SPIRV` target was not built. Please enable it when "
-                    "building LLVM.");
-  return std::nullopt;
-#endif // MLIR_SPIRV_CONVERSIONS_ENABLED == 1
 }
 
 Attribute
