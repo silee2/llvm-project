@@ -76,8 +76,8 @@ SerializeGPUModuleBase::SerializeGPUModuleBase(
 void SerializeGPUModuleBase::init() {
   static llvm::once_flag initializeBackendOnce;
   llvm::call_once(initializeBackendOnce, []() {
-  // If the `SPIRV` LLVM target was built, initialize it.
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1
+    // If the `SPIRV` LLVM target was built, initialize it.
     LLVMInitializeSPIRVTarget();
     LLVMInitializeSPIRVTargetInfo();
     LLVMInitializeSPIRVTargetMC();
@@ -148,6 +148,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   if (targetOptions.getCompilationTarget() == gpu::CompilationTarget::Offload)
     return SerializeGPUModuleBase::moduleToObject(llvmModule);
 
+#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 && MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   std::optional<llvm::TargetMachine *> targetMachine =
       getOrCreateTargetMachine();
   if (!targetMachine) {
@@ -155,10 +156,12 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
                                << triple << ", can't compile with LLVM\n";
     return std::nullopt;
   }
+#endif
 
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1
   if (targetOptions.getCompilationTarget() ==
       gpu::CompilationTarget::Assembly) {
+#if MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
     // Translate the Module to ISA which is SPIR-V text format.
     std::optional<std::string> serializedISA =
         translateToISA(llvmModule, **targetMachine);
@@ -167,16 +170,19 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       return std::nullopt;
     }
 #define DEBUG_TYPE "serialize-to-isa"
-  LLVM_DEBUG({
-    llvm::dbgs() << "ISA for module: " << getOperation().getNameAttr() << "\n"
-                 << *serializedISA << "\n";
-  });
+    LLVM_DEBUG({
+      llvm::dbgs() << "ISA for module: " << getOperation().getNameAttr() << "\n"
+                   << *serializedISA << "\n";
+    });
 #undef DEBUG_TYPE
-  // Return ISA assembly code if the compilation target is assembly.
-  return SmallVector<char, 0>(serializedISA->begin(), serializedISA->end());
+    // Return ISA assembly code if the compilation target is assembly.
+    return SmallVector<char, 0>(serializedISA->begin(), serializedISA->end());
+#else
+#endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   }
 
   if (targetOptions.getCompilationTarget() == gpu::CompilationTarget::Binary) {
+#if MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
     // Translate the Module to ISA binary which is SPIR-V binary format.
     std::optional<std::string> serializedISABinary =
         translateToISABinary(llvmModule, **targetMachine);
@@ -194,6 +200,8 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     // Return ISA assembly code if the compilation target is assembly.
     return SmallVector<char, 0>(serializedISABinary->begin(),
                                 serializedISABinary->end());
+#else
+#endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   }
 #endif // MLIR_SPIRV_CONVERSIONS_ENABLED
 

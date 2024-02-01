@@ -150,10 +150,7 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
     SPIRVDesc
     SPIRVInfo
   )
-endif()
-
-if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
-  if (NOT TARGET llvm-spirv)
+  if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
     include(FetchContent)
 
     set(LLVM_SPIRV_INCLUDE_TESTS OFF)
@@ -168,10 +165,11 @@ if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
     if (HAVE_GLOBAL_CONSTRUCTORS)
       target_compile_options(LLVMSPIRVLib PRIVATE -Wno-global-constructors)
     endif()
-  endif()
-  set(SPIRV_LLVM_LIBS
+
+    set(SPIRV_LLVM_LIBS
       SPIRVLib
-  )
+    )
+  endif()
 endif()
 
 add_mlir_dialect_library(MLIRSPIR64Target
