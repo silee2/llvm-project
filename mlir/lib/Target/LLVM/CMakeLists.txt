@@ -153,6 +153,25 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
   if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
     include(FetchContent)
 
+    set(SPIRV_SKIP_TESTS ON)
+    FetchContent_Declare(
+      spirv-tools
+      GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Tools.git
+      GIT_TAG main  # This will pull the latest changes from the main branch.
+      DOWNLOAD_COMMAND git clone https://github.com/KhronosGroup/SPIRV-Tools.git ${FETCHCONTENT_BASE_DIR}/spirv-tools-src &&
+      cd ${FETCHCONTENT_BASE_DIR}/spirv-tools-src &&
+        ${Python3_EXECUTABLE} utils/git-sync-deps
+      UPDATE_COMMAND cd ${FETCHCONTENT_BASE_DIR}/spirv-tools-src &&
+        git pull origin main &&
+        ${Python3_EXECUTABLE} utils/git-sync-deps
+      # Don't auto-update on every build.
+      UPDATE_DISCONNECTED 1
+      # Allow manual updating with an explicit SPIRVTools-update target.
+      STEP_TARGETS update
+    )
+    FetchContent_MakeAvailable(spirv-tools)
+    list(APPEND CMAKE_MODULE_PATH "${spirv-tools-BINARY_DIR}")
+
     set(LLVM_SPIRV_INCLUDE_TESTS OFF)
     include(CheckCXXCompilerFlag)
     check_cxx_compiler_flag(-Wglobal-constructors HAVE_GLOBAL_CONSTRUCTORS)
@@ -188,3 +207,16 @@ add_mlir_dialect_library(MLIRSPIR64Target
   MLIRTargetLLVM
   MLIRSPIR64ToLLVMIRTranslation
   )
+
+if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
+  target_include_directories(MLIRSPIR64Target
+  PRIVATE
+    ${spirv-llvm-translator_SOURCE_DIR}/include
+    ${spirv-tools_SOURCE_DIR}/include
+  )
+  target_link_libraries(MLIRSPIR64Target
+  PRIVATE
+    ${SPIRV_TOOLS_LDFLAGS}
+  )
+endif()
+

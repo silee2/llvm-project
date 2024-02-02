@@ -23,8 +23,16 @@
 
 #include "llvm/Support/TargetSelect.h"
 
+#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
+    MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 1
+#include "LLVMSPIRVLib.h"
+#include "spirv-tools/libspirv.hpp"
+#endif
+
 #include <cstdlib>
 #include <optional>
+#include <sstream>
+#include <string>
 
 using namespace mlir;
 using namespace mlir::spir64;
@@ -178,6 +186,23 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     // Return ISA assembly code if the compilation target is assembly.
     return SmallVector<char, 0>(serializedISA->begin(), serializedISA->end());
 #else
+    spvtools::SpirvTools spvTool(SPV_ENV_OPENCL_2_0);
+    std::string err;
+    std::ostringstream outStream;
+    bool Success = writeSpirv(&llvmModule, outStream, err);
+    if (!Success) {
+      getOperation().emitError()
+          << "Failed translating the module to ISA. " << err;
+      return std::nullopt;
+    }
+    std::string serializedISA;
+    if (!spvTool.Disassemble(
+            reinterpret_cast<const uint32_t *>(outStream.str().data()),
+            outStream.str().size() / sizeof(uint32_t), &serializedISA)) {
+      getOperation().emitError() << "Failed translating the module to ISA.";
+      return std::nullopt;
+    }
+    return SmallVector<char, 0>(serializedISA.begin(), serializedISA.end());
 #endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   }
 
@@ -201,6 +226,16 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     return SmallVector<char, 0>(serializedISABinary->begin(),
                                 serializedISABinary->end());
 #else
+    std::string err;
+    std::ostringstream outStream;
+    bool Success = writeSpirv(&llvmModule, outStream, err);
+    if (!Success) {
+      getOperation().emitError()
+          << "Failed translating the module to Binary. " << err;
+      return std::nullopt;
+    }
+    std::string serializedISA = outStream.str();
+    return SmallVector<char, 0>(serializedISA.begin(), serializedISA.end());
 #endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   }
 #endif // MLIR_SPIRV_CONVERSIONS_ENABLED
