@@ -1,0 +1,66 @@
+//===- GPUToVCPass.cpp - MLIR GPU to VC lowering passes -------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This file implements a pass to generate VC operations for higher-level
+// GPU operations.
+//
+//===----------------------------------------------------------------------===//
+
+#include "mlir/Conversion/GPUToVC/GPUToVCPass.h"
+
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
+#include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
+#include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
+#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include "../GPUCommon/GPUOpsLowering.h"
+#include "../GPUCommon/IndexIntrinsicsOpLowering.h"
+#include "../GPUCommon/OpToFuncCallLowering.h"
+#include <optional>
+
+#include "llvm/GenXIntrinsics/GenXIntrinsics.h"
+
+namespace mlir {
+#define GEN_PASS_DEF_CONVERTGPUTOVC
+#include "mlir/Conversion/Passes.h.inc"
+} // namespace mlir
+
+using namespace mlir;
+
+namespace {
+
+/// A pass that replaces all occurrences of GPU device operations with their
+/// corresponding VC intrinsics equivalent.
+///
+/// This pass only handles device code and is not meant to be run on GPU host
+/// code.
+struct GPUToVCPass
+    : public impl::ConvertGPUToVCBase<GPUToVCPass> {
+  using Base::Base;
+
+  void runOnOperation() override {
+    gpu::GPUModuleOp m = getOperation();
+
+  }
+};
+
+} // namespace
+

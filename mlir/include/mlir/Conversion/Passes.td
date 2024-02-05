@@ -553,6 +553,18 @@ def ConvertGpuOpsToROCDLOps : Pass<"convert-gpu-to-rocdl", "gpu::GPUModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
+// GPUToVC
+//===----------------------------------------------------------------------===//
+
+def ConvertGPUToVC : Pass<"convert-gpu-to-vc", "gpu::GPUModuleOp"> {
+  let summary = "Generate vc-intrinsics operations for gpu operations";
+  let dependentDialects = [
+    "cf::ControlFlowDialect",
+    "memref::MemRefDialect",
+  ];
+}
+
+//===----------------------------------------------------------------------===//
 // GPUToSPIRV
 //===----------------------------------------------------------------------===//
 
