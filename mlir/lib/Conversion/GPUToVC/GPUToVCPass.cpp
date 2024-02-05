@@ -26,6 +26,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -37,6 +38,8 @@
 #include <optional>
 
 #include "llvm/GenXIntrinsics/GenXIntrinsics.h"
+
+#include <iostream>
 
 namespace mlir {
 #define GEN_PASS_DEF_CONVERTGPUTOVC
@@ -57,7 +60,19 @@ struct GPUToVCPass
   using Base::Base;
 
   void runOnOperation() override {
+    MLIRContext *context = &getContext();
     gpu::GPUModuleOp m = getOperation();
+    OpBuilder builder(context);
+    builder.setInsertionPoint(m.getBody(),
+                              m.getBody()->begin());
+    // instead of default builder, need a wrapper that checks GPU and name
+    //builder.create<LLVM::CallIntrinsicOp>(m.getLoc(),
+    llvm::GenXIntrinsic::ID id = llvm::GenXIntrinsic::lookupGenXIntrinsicID("llvm.genx.simdcf.get.em");
+    std::cout << "GenXIntrinsic ID: " << id << std::endl;
+    bool isSup = llvm::GenXIntrinsic::isSupportedPlatform("XeLP", id);
+    std::cout << "Is supported platform: " << (isSup ? "y" : "n") << std::endl;
+    if(!llvm::GenXIntrinsic::isGenXIntrinsic(id))
+        signalPassFailure();
 
   }
 };
