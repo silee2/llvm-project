@@ -151,8 +151,31 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
     SPIRVInfo
   )
   if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
+    # Build translator from source
+    if(NOT TARGET LLVMSPIRVLib)
+    message(STATUS "Need to build SPIRV LLVM Translator")
     include(FetchContent)
 
+    # check if spirv-tools need to be built from source
+    set(NEED_TO_BUILD_SPIRV_TOOLS TRUE)
+    include(FindPkgConfig)
+    # first try locating SPIRV-Tools via pkgconfig (the old way)
+    pkg_search_module(SPIRV_TOOLS SPIRV-Tools)
+    if (SPIRV_TOOLS_FOUND)
+      set(NEED_TO_BUILD_SPIRV_TOOLS FALSE)
+      message(STATUS "Found SPIRV Tools old way")
+    else()
+      # then try locating SPIRV-Tools via cmake (the new way)
+      find_package(SPIRV-Tools)
+      find_package(SPIRV-Tools-tools)
+      if (SPIRV-Tools_FOUND AND SPIRV-Tools-tools_FOUND)
+        set(NEED_TO_BUILD_SPIRV_TOOLS FALSE)
+        message(STATUS "Found SPIRV Tools new way")
+      endif()
+    endif()
+
+    if(NEED_TO_BUILD_SPIRV_TOOLS)
+    message(STATUS "Need to build SPIRV Tools")
     set(SPIRV_SKIP_TESTS ON)
     FetchContent_Declare(
       spirv-tools
@@ -170,7 +193,11 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
       STEP_TARGETS update
     )
     FetchContent_MakeAvailable(spirv-tools)
-    list(APPEND CMAKE_MODULE_PATH "${spirv-tools-BINARY_DIR}")
+    message(STATUS "SPIRV Tools binary dir: ${spirv-tools_BINARY_DIR}")
+    message(STATUS "SPIRV Tools source dir: ${spirv-tools_SOURCE_DIR}")
+    list(APPEND CMAKE_MODULE_PATH "${spirv-tools_BINARY_DIR}")
+    set(LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR ${spirv-tools_SOURCE_DIR}/external/spirv-headers)
+    endif()
 
     set(LLVM_SPIRV_INCLUDE_TESTS OFF)
     include(CheckCXXCompilerFlag)
@@ -188,6 +215,7 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
     set(SPIRV_LLVM_LIBS
       SPIRVLib
     )
+    endif()
   endif()
 endif()
 
