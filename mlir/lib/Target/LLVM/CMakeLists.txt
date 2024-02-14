@@ -157,6 +157,9 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
     # and fetched.
 
     include(FetchContent)
+    include(CheckCXXCompilerFlag)
+
+    check_cxx_compiler_flag(-Werror HAVE_ERROR)
 
     if((NOT TARGET SPIRV-Tools-static) OR (NOT TARGET LLVMSPIRVLib))
       message(STATUS "Fetching SPIRV Headers")
@@ -178,13 +181,15 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
         GIT_TAG main  # This will pull the latest changes from the main branch.
       )
       FetchContent_MakeAvailable(spirv-tools)
+      if (HAVE_ERROR)
+          target_compile_options(SPIRV-Tools-static PRIVATE -Wno-error)
+      endif()
     endif()
 
     if(NOT TARGET LLVMSPIRVLib)
       message(STATUS "Fetching SPIRV LLVM Translator")
       set(LLVM_SPIRV_INCLUDE_TESTS OFF)
       set(LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR ${spirv-headers_SOURCE_DIR})
-      include(CheckCXXCompilerFlag)
       check_cxx_compiler_flag(-Wglobal-constructors HAVE_GLOBAL_CONSTRUCTORS)
       FetchContent_Declare(
         spirv-llvm-translator
@@ -194,6 +199,9 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
       FetchContent_MakeAvailable(spirv-llvm-translator)
       if (HAVE_GLOBAL_CONSTRUCTORS)
         target_compile_options(LLVMSPIRVLib PRIVATE -Wno-global-constructors)
+      endif()
+      if (HAVE_ERROR)
+        target_compile_options(LLVMSPIRVLib PRIVATE -Wno-error)
       endif()
     endif()
   endif()
