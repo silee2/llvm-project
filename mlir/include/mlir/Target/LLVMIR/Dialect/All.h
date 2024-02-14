@@ -49,12 +49,9 @@ static inline void registerAllToLLVMIRTranslations(DialectRegistry &registry) {
   registerOpenACCDialectTranslation(registry);
   registerOpenMPDialectTranslation(registry);
   registerROCDLDialectTranslation(registry);
-  registerSPIRVDialectTranslation(registry);
-<<<<<<< HEAD
   registerSPIR64DialectTranslation(registry);
-=======
+  registerSPIRVDialectTranslation(registry);
   registerVCIXDialectTranslation(registry);
->>>>>>> origin/main
   registerX86VectorDialectTranslation(registry);
 
   // Extension required for translating GPU offloading Ops.
