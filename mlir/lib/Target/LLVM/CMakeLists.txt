@@ -151,70 +151,50 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
     SPIRVInfo
   )
   if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
-    # Build translator from source
-    if(NOT TARGET LLVMSPIRVLib)
-    message(STATUS "Need to build SPIRV LLVM Translator")
+    # Two cmake targets LLVMSPIRVLib, SPIRV-Tools-static are needed
+    # and source is fetched if missing.
+    # If any of them needs to be fetched, target SPIRV-Headers is needed
+    # and fetched.
+
     include(FetchContent)
 
-    # check if spirv-tools need to be built from source
-    set(NEED_TO_BUILD_SPIRV_TOOLS TRUE)
-    include(FindPkgConfig)
-    # first try locating SPIRV-Tools via pkgconfig (the old way)
-    pkg_search_module(SPIRV_TOOLS SPIRV-Tools)
-    if (SPIRV_TOOLS_FOUND)
-      set(NEED_TO_BUILD_SPIRV_TOOLS FALSE)
-      message(STATUS "Found SPIRV Tools old way")
-    else()
-      # then try locating SPIRV-Tools via cmake (the new way)
-      find_package(SPIRV-Tools)
-      find_package(SPIRV-Tools-tools)
-      if (SPIRV-Tools_FOUND AND SPIRV-Tools-tools_FOUND)
-        set(NEED_TO_BUILD_SPIRV_TOOLS FALSE)
-        message(STATUS "Found SPIRV Tools new way")
+    if((NOT TARGET SPIRV-Tools-static) OR (NOT TARGET LLVMSPIRVLib))
+      message(STATUS "Fetching SPIRV Headers")
+      FetchContent_Declare(
+        spirv-headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
+        GIT_TAG main  # This will pull the latest changes from the main branch.
+      )
+      FetchContent_MakeAvailable(spirv-headers)
+    endif()
+
+    if(NOT TARGET SPIRV-Tools-static)
+      message(STATUS "Fetching SPIRV Tools")
+      set(SPIRV_SKIP_TESTS ON)
+      set(SPIRV-Headers_SOURCE_DIR ${spirv-headers_SOURCE_DIR})
+      FetchContent_Declare(
+        spirv-tools
+        GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Tools.git
+        GIT_TAG main  # This will pull the latest changes from the main branch.
+      )
+      FetchContent_MakeAvailable(spirv-tools)
+    endif()
+
+    if(NOT TARGET LLVMSPIRVLib)
+      message(STATUS "Fetching SPIRV LLVM Translator")
+      set(LLVM_SPIRV_INCLUDE_TESTS OFF)
+      set(LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR ${spirv-headers_SOURCE_DIR})
+      include(CheckCXXCompilerFlag)
+      check_cxx_compiler_flag(-Wglobal-constructors HAVE_GLOBAL_CONSTRUCTORS)
+      FetchContent_Declare(
+        spirv-llvm-translator
+        GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
+        GIT_TAG main  # This will pull the latest changes from the main branch.
+      )
+      FetchContent_MakeAvailable(spirv-llvm-translator)
+      if (HAVE_GLOBAL_CONSTRUCTORS)
+        target_compile_options(LLVMSPIRVLib PRIVATE -Wno-global-constructors)
       endif()
-    endif()
-
-    if(NEED_TO_BUILD_SPIRV_TOOLS)
-    message(STATUS "Need to build SPIRV Tools")
-    set(SPIRV_SKIP_TESTS ON)
-    FetchContent_Declare(
-      spirv-tools
-      GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Tools.git
-      GIT_TAG main  # This will pull the latest changes from the main branch.
-      DOWNLOAD_COMMAND git clone https://github.com/KhronosGroup/SPIRV-Tools.git ${FETCHCONTENT_BASE_DIR}/spirv-tools-src &&
-      cd ${FETCHCONTENT_BASE_DIR}/spirv-tools-src &&
-        ${Python3_EXECUTABLE} utils/git-sync-deps
-      UPDATE_COMMAND cd ${FETCHCONTENT_BASE_DIR}/spirv-tools-src &&
-        git pull origin main &&
-        ${Python3_EXECUTABLE} utils/git-sync-deps
-      # Don't auto-update on every build.
-      UPDATE_DISCONNECTED 1
-      # Allow manual updating with an explicit SPIRVTools-update target.
-      STEP_TARGETS update
-    )
-    FetchContent_MakeAvailable(spirv-tools)
-    message(STATUS "SPIRV Tools binary dir: ${spirv-tools_BINARY_DIR}")
-    message(STATUS "SPIRV Tools source dir: ${spirv-tools_SOURCE_DIR}")
-    list(APPEND CMAKE_MODULE_PATH "${spirv-tools_BINARY_DIR}")
-    set(LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR ${spirv-tools_SOURCE_DIR}/external/spirv-headers)
-    endif()
-
-    set(LLVM_SPIRV_INCLUDE_TESTS OFF)
-    include(CheckCXXCompilerFlag)
-    check_cxx_compiler_flag(-Wglobal-constructors HAVE_GLOBAL_CONSTRUCTORS)
-    FetchContent_Declare(
-      spirv-llvm-translator
-      GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
-      GIT_TAG main  # This will pull the latest changes from the main branch.
-    )
-    FetchContent_MakeAvailable(spirv-llvm-translator)
-    if (HAVE_GLOBAL_CONSTRUCTORS)
-      target_compile_options(LLVMSPIRVLib PRIVATE -Wno-global-constructors)
-    endif()
-
-    set(SPIRV_LLVM_LIBS
-      SPIRVLib
-    )
     endif()
   endif()
 endif()
@@ -225,7 +205,6 @@ add_mlir_dialect_library(MLIRSPIR64Target
   LINK_COMPONENTS
   MCParser
   ${SPIRV_LIBS}
-  ${SPIRV_LLVM_LIBS}
 
   LINK_LIBS PUBLIC
   MLIRIR
@@ -237,14 +216,14 @@ add_mlir_dialect_library(MLIRSPIR64Target
   )
 
 if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
+  get_target_property(_src_dir LLVMSPIRVLib SOURCE_DIR)
   target_include_directories(MLIRSPIR64Target
   PRIVATE
-    ${spirv-llvm-translator_SOURCE_DIR}/include
-    ${spirv-tools_SOURCE_DIR}/include
+    ${_src_dir}/../../include
   )
   target_link_libraries(MLIRSPIR64Target
   PRIVATE
-    ${SPIRV_TOOLS_LDFLAGS}
+    SPIRV-Tools-static
+    LLVMSPIRVLib
   )
 endif()
-
