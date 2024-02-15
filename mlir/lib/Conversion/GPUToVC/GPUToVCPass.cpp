@@ -11,8 +11,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/Passes.h"
+#include "mlir/IR/DialectRegistry.h"
+
 #include "mlir/Conversion/GPUToVC/GPUToVCPass.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
@@ -28,7 +34,6 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -60,8 +65,9 @@ struct GPUToVCPass
   using Base::Base;
 
   void runOnOperation() override {
-    MLIRContext *context = &getContext();
     gpu::GPUModuleOp m = getOperation();
+/*
+    MLIRContext *context = &getContext();
     OpBuilder builder(context);
     builder.setInsertionPoint(m.getBody(),
                               m.getBody()->begin());
@@ -73,7 +79,44 @@ struct GPUToVCPass
     std::cout << "Is supported platform: " << (isSup ? "y" : "n") << std::endl;
     if(!llvm::GenXIntrinsic::isGenXIntrinsic(id))
         signalPassFailure();
+*/
 
+    // Request C wrapper emission.
+    for (auto func : m.getOps<func::FuncOp>()) {
+      func->setAttr(LLVM::LLVMDialect::getEmitCWrapperAttrName(),
+                    UnitAttr::get(&getContext()));
+    }
+
+    LowerToLLVMOptions options(
+        m.getContext(),
+        DataLayout(cast<DataLayoutOpInterface>(m.getOperation())));
+
+    // Apply in-dialect lowering. In-dialect lowering will replace
+    // ops which need to be lowered further, which is not supported by a
+    // single conversion pass.
+    {
+      RewritePatternSet patterns(m.getContext());
+      populateGpuRewritePatterns(patterns);
+      if (failed(applyPatternsAndFoldGreedily(m, std::move(patterns))))
+        return signalPassFailure();
+    }
+
+    LLVMTypeConverter converter(m.getContext(), options);
+    RewritePatternSet llvmPatterns(m.getContext());
+
+    arith::populateArithToLLVMConversionPatterns(converter, llvmPatterns);
+    cf::populateControlFlowToLLVMConversionPatterns(converter, llvmPatterns);
+    populateFuncToLLVMConversionPatterns(converter, llvmPatterns);
+    populateFinalizeMemRefToLLVMConversionPatterns(converter, llvmPatterns);
+    populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
+    MLIRContext *context = &getContext();
+    OpBuilder builder(context);
+    llvmPatterns.add<GPUFuncOpLowering>(converter, 0, 0, builder.getStringAttr("intel_kernel"));
+    llvmPatterns.add<GPUReturnOpLowering>(converter);
+
+    LLVMConversionTarget target(getContext());
+    if (failed(applyPartialConversion(m, target, std::move(llvmPatterns))))
+      signalPassFailure();
   }
 };
 

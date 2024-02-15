@@ -572,7 +572,6 @@ def ConvertXeGPUToVC : Pass<"convert-xegpu-to-vc"> {
   }];
   let constructor = "mlir::createConvertXeGPUToVCPass()";
   let dependentDialects = [
-    "LLVM::LLVMDialect",
   ];
 }
 
@@ -585,6 +584,7 @@ def ConvertGPUToVC : Pass<"convert-gpu-to-vc", "gpu::GPUModuleOp"> {
   let dependentDialects = [
     "cf::ControlFlowDialect",
     "memref::MemRefDialect",
+    "LLVM::LLVMDialect",
   ];
 }
 
