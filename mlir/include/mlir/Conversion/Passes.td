@@ -585,6 +585,8 @@ def ConvertGPUToVC : Pass<"convert-gpu-to-vc", "gpu::GPUModuleOp"> {
     "cf::ControlFlowDialect",
     "memref::MemRefDialect",
     "LLVM::LLVMDialect",
+    "func::FuncDialect",
+    "arith::ArithDialect",
   ];
 }
 

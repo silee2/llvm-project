@@ -76,7 +76,7 @@ static FlatSymbolRefAttr getFuncRefAttr(ModuleOp module, StringRef name,
 }
 
 static func::CallOp createFuncCall(
-    ConversionPatternRewriter &rewriter, Location loc, StringRef name, TypeRange resultType,
+    PatternRewriter &rewriter, Location loc, StringRef name, TypeRange resultType,
     ValueRange operands, bool emitCInterface) {
   auto module = rewriter.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
   FlatSymbolRefAttr fn =
@@ -84,43 +84,51 @@ static func::CallOp createFuncCall(
   return rewriter.create<func::CallOp>(loc, resultType, fn, operands);
 }
 
-template <typename Op, const char * FName>
-struct GPUIndexIntrinsicOpToOCLBuiltinLowering : public OpConversionPattern<Op> {
+struct TempPattern : public OpRewritePattern<gpu::ThreadIdOp> {
     public:
-        using OpConversionPattern<Op>::OpConversionPattern;
+        using OpRewritePattern::OpRewritePattern;
     LogicalResult
-    matchAndRewrite(Op op, typename Op::Adaptor adaptor,
-            ConversionPatternRewriter &rewriter) const override {
+    matchAndRewrite(gpu::ThreadIdOp op,
+            PatternRewriter &rewriter) const override {
     auto loc = op->getLoc();
-    MLIRContext *context = rewriter.getContext();
-    Value argOp;
-    Type i32Ty = IntegerType::get(context, 32);
-    Type i64Ty = IntegerType::get(context, 64);
-    switch (op.getDimension()) {
-    case gpu::Dimension::x:
-      argOp = rewriter.createOrFold<arith::ConstantOp>(loc, i32Ty, rewriter.getIntegerAttr(i32Ty, 0));
-      break;
-    case gpu::Dimension::y:
-      argOp = rewriter.createOrFold<arith::ConstantOp>(loc, i32Ty, rewriter.getIntegerAttr(i32Ty, 1));
-      break;
-    case gpu::Dimension::z:
-      argOp = rewriter.createOrFold<arith::ConstantOp>(loc, i32Ty, rewriter.getIntegerAttr(i32Ty, 2));
-      break;
-    }
-    llvm::SmallVector<mlir::Value> operands{argOp};
-    TypeRange resultTypes{i64Ty};
-    auto newOp = createFuncCall(rewriter, loc, FName, resultTypes, operands, false);
-
-    Operation *function;
-    if (auto gpuFunc = op->template getParentOfType<gpu::GPUFuncOp>())
-      function = gpuFunc;
-    if (auto llvmFunc = op->template getParentOfType<LLVM::LLVMFuncOp>())
-      function = llvmFunc;
-
-    rewriter.replaceOp(op, newOp->getResults());
+    Operation *newOp = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(55));
+    rewriter.replaceOp(op, newOp);
     return success();
     }
 };
+
+template <typename Op, const char * FName>
+struct GPUIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
+    public:
+        using OpRewritePattern<Op>::OpRewritePattern;
+    LogicalResult
+    matchAndRewrite(Op op,
+            PatternRewriter &rewriter) const override {
+    auto loc = op->getLoc();
+    MLIRContext *context = rewriter.getContext();
+
+    Value argOp;
+    Type i32Ty = IntegerType::get(context, 32);
+    Type indexTy = rewriter.getIndexType();
+    switch (op.getDimension()) {
+    case gpu::Dimension::x:
+      argOp = rewriter.createOrFold<arith::ConstantOp>(loc, rewriter.getIntegerAttr(i32Ty, 0));
+      break;
+    case gpu::Dimension::y:
+      argOp = rewriter.createOrFold<arith::ConstantOp>(loc, rewriter.getIntegerAttr(i32Ty, 1));
+      break;
+    case gpu::Dimension::z:
+      argOp = rewriter.createOrFold<arith::ConstantOp>(loc, rewriter.getIntegerAttr(i32Ty, 2));
+      break;
+    }
+    llvm::SmallVector<mlir::Value> operands{argOp};
+    TypeRange resultTypes{indexTy};
+    auto newOp = createFuncCall(rewriter, loc, FName, resultTypes, operands, false);
+    rewriter.replaceOp(op, newOp);
+    return success();
+    }
+};
+
 
 static const char get_global_id[] = "get_global_id";
 static const char get_local_id[] = "get_local_id";
@@ -157,7 +165,7 @@ struct GPUToVCPass
       RewritePatternSet patterns(m.getContext());
       // TODO: GlobalId rewrite patterns is not needed for OCL.
       // Check if other patterns are usefule
-      populateGpuRewritePatterns(patterns);
+      // populateGpuRewritePatterns(patterns);
       // Convert gpu index ops to func.call to OCL builtins
       patterns.add<
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::ThreadIdOp, get_local_id>,
@@ -166,6 +174,7 @@ struct GPUToVCPass
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GridDimOp, get_num_groups>,
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GlobalIdOp, get_global_id>
           >(patterns.getContext());
+      //patterns.add<TempPattern>(patterns.getContext());
       if (failed(applyPatternsAndFoldGreedily(m, std::move(patterns))))
         return signalPassFailure();
     }
