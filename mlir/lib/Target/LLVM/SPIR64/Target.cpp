@@ -202,6 +202,12 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       getOperation().emitError() << "Failed translating the module to ISA.";
       return std::nullopt;
     }
+#define DEBUG_TYPE "serialize-to-isa"
+    LLVM_DEBUG({
+      llvm::dbgs() << "ISA for module: " << getOperation().getNameAttr() << "\n"
+                   << serializedISA << "\n";
+    });
+#undef DEBUG_TYPE
     return SmallVector<char, 0>(serializedISA.begin(), serializedISA.end());
 #endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   }
@@ -234,8 +240,15 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
           << "Failed translating the module to Binary. " << err;
       return std::nullopt;
     }
-    std::string serializedISA = outStream.str();
-    return SmallVector<char, 0>(serializedISA.begin(), serializedISA.end());
+    std::string serializedISABinary = outStream.str();
+#define DEBUG_TYPE "serialize-to-binary"
+    LLVM_DEBUG({
+      llvm::dbgs() << "ISA binary for module: " << getOperation().getNameAttr()
+                   << "\n"
+                   << serializedISABinary << "\n";
+    });
+#undef DEBUG_TYPE
+    return SmallVector<char, 0>(serializedISABinary.begin(), serializedISABinary.end());
 #endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   }
 #endif // MLIR_SPIRV_CONVERSIONS_ENABLED
