@@ -122,7 +122,7 @@ static const char get_global_id[] = "_Z13get_global_idj";
 static const char get_local_id[] = "_Z12get_local_idj";
 static const char get_local_size[] = "_Z12get_local_sizej";
 static const char get_group_id[] = "_Z12get_group_idj";
-static const char get_num_groups[] = "get_num_groups";
+static const char get_num_groups[] = "_Z14get_num_groupsj";
 
 /// A pass that replaces all occurrences of GPU device operations with their
 /// corresponding VC intrinsics equivalent.
