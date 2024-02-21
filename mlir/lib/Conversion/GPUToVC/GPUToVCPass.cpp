@@ -55,7 +55,7 @@ using namespace mlir;
 
 namespace {
 
-static FlatSymbolRefAttr getFuncRefAttr(ModuleOp module, StringRef name,
+static FlatSymbolRefAttr getFuncRefAttr(gpu::GPUModuleOp module, StringRef name,
                                                TypeRange resultType,
                                                ValueRange operands,
                                                bool emitCInterface) {
@@ -67,6 +67,7 @@ static FlatSymbolRefAttr getFuncRefAttr(ModuleOp module, StringRef name,
     func = moduleBuilder.create<func::FuncOp>(
         module.getLoc(), name,
         FunctionType::get(context, operands.getTypes(), resultType));
+        //FunctionType::get(context, operands.getTypes(), {moduleBuilder.getIndexType()}));
     func.setPrivate();
     if (emitCInterface)
       func->setAttr(LLVM::LLVMDialect::getEmitCWrapperAttrName(),
@@ -78,24 +79,11 @@ static FlatSymbolRefAttr getFuncRefAttr(ModuleOp module, StringRef name,
 static func::CallOp createFuncCall(
     PatternRewriter &rewriter, Location loc, StringRef name, TypeRange resultType,
     ValueRange operands, bool emitCInterface) {
-  auto module = rewriter.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
+  auto module = rewriter.getBlock()->getParentOp()->getParentOfType<gpu::GPUModuleOp>();
   FlatSymbolRefAttr fn =
       getFuncRefAttr(module, name, resultType, operands, emitCInterface);
-  return rewriter.create<func::CallOp>(loc, resultType, fn, operands);
+  return rewriter.create<func::CallOp>(loc, fn, resultType, operands);
 }
-
-struct TempPattern : public OpRewritePattern<gpu::ThreadIdOp> {
-    public:
-        using OpRewritePattern::OpRewritePattern;
-    LogicalResult
-    matchAndRewrite(gpu::ThreadIdOp op,
-            PatternRewriter &rewriter) const override {
-    auto loc = op->getLoc();
-    Operation *newOp = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(55));
-    rewriter.replaceOp(op, newOp);
-    return success();
-    }
-};
 
 template <typename Op, const char * FName>
 struct GPUIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
@@ -122,18 +110,18 @@ struct GPUIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
       break;
     }
     llvm::SmallVector<mlir::Value> operands{argOp};
-    TypeRange resultTypes{indexTy};
-    auto newOp = createFuncCall(rewriter, loc, FName, resultTypes, operands, false);
+    //TypeRange resultTypes{indexTy};
+    auto newOp = createFuncCall(rewriter, loc, FName, TypeRange{indexTy}, operands, false);
     rewriter.replaceOp(op, newOp);
     return success();
     }
 };
 
 
-static const char get_global_id[] = "get_global_id";
-static const char get_local_id[] = "get_local_id";
-static const char get_local_size[] = "get_local_size";
-static const char get_group_id[] = "get_group_id";
+static const char get_global_id[] = "_Z13get_global_idj";
+static const char get_local_id[] = "_Z12get_local_idj";
+static const char get_local_size[] = "_Z12get_local_sizej";
+static const char get_group_id[] = "_Z12get_group_idj";
 static const char get_num_groups[] = "get_num_groups";
 
 /// A pass that replaces all occurrences of GPU device operations with their
@@ -163,9 +151,6 @@ struct GPUToVCPass
     // single conversion pass.
     {
       RewritePatternSet patterns(m.getContext());
-      // TODO: GlobalId rewrite patterns is not needed for OCL.
-      // Check if other patterns are usefule
-      // populateGpuRewritePatterns(patterns);
       // Convert gpu index ops to func.call to OCL builtins
       patterns.add<
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::ThreadIdOp, get_local_id>,
@@ -174,7 +159,6 @@ struct GPUToVCPass
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GridDimOp, get_num_groups>,
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GlobalIdOp, get_global_id>
           >(patterns.getContext());
-      //patterns.add<TempPattern>(patterns.getContext());
       if (failed(applyPatternsAndFoldGreedily(m, std::move(patterns))))
         return signalPassFailure();
     }
