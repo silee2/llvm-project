@@ -568,7 +568,7 @@ def ConvertGpuOpsToROCDLOps : Pass<"convert-gpu-to-rocdl", "gpu::GPUModuleOp"> {
 def ConvertXeGPUToVC : Pass<"convert-xegpu-to-vc"> {
   let summary = "Convert XeGPU dialect to vc intrinsic";
   let description = [{
-    This pass converts supported XeGPU ops to vc intrinsics.
+    This pass converts all XeGPU ops to func calls to vc intrinsics.
   }];
   let constructor = "mlir::createConvertXeGPUToVCPass()";
   let dependentDialects = [

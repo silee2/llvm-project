@@ -97,6 +97,8 @@ struct GPUToVCPass
     {
       RewritePatternSet patterns(m.getContext());
       populateGpuRewritePatterns(patterns);
+      // Convert gpu index ops to func.call to OCL builtins
+      // populateIndexOCLRewritePatterns(patterns);
       if (failed(applyPatternsAndFoldGreedily(m, std::move(patterns))))
         return signalPassFailure();
     }
@@ -111,7 +113,7 @@ struct GPUToVCPass
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
     MLIRContext *context = &getContext();
     OpBuilder builder(context);
-    llvmPatterns.add<GPUFuncOpLowering>(converter, 0, 0, builder.getStringAttr("intel_kernel"));
+    llvmPatterns.add<GPUFuncOpLowering>(converter, 0, 0, builder.getStringAttr("spir_func"));
     llvmPatterns.add<GPUReturnOpLowering>(converter);
 
     LLVMConversionTarget target(getContext());
