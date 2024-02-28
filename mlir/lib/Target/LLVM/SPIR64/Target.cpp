@@ -13,7 +13,6 @@
 
 #include "mlir/Target/LLVM/SPIR64/Target.h"
 
-#include "LLVMSPIRVOpts.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/SPIR64Dialect.h"
 #include "mlir/Target/LLVM/SPIR64/Utils.h"
@@ -27,6 +26,7 @@
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
     MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 1
 #include "LLVMSPIRVLib.h"
+#include "LLVMSPIRVOpts.h"
 #include "spirv-tools/libspirv.hpp"
 #endif
 
