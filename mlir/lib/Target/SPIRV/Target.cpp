@@ -19,6 +19,11 @@
 #include "mlir/Dialect/SPIRV/IR/SPIRVOps.h"
 #include "mlir/Target/SPIRV/Serialization.h"
 
+#if MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 1
+#include "spirv-tools/libspirv.hpp"
+#include "llvm/Support/Debug.h"
+#endif
+
 #include <cstdlib>
 #include <cstring>
 
@@ -83,6 +88,23 @@ std::optional<SmallVector<char, 0>> SPIRVTargetAttrImpl::serializeToObject(
   SmallVector<char, 0> spvData(spvBinary.size() * sizeof(uint32_t), 0);
   std::memcpy(spvData.data(), spvBinary.data(), spvData.size());
 
+#if MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 1
+  spvtools::SpirvTools spvTool(SPV_ENV_OPENCL_2_0);
+  std::string serializedISA;
+  if (!spvTool.Disassemble(
+            reinterpret_cast<const uint32_t *>(spvBinary.data()),
+            spvBinary.size(), &serializedISA)) {
+      gpuMod.emitError() << "Failed translating the module to ISA.";
+      return std::nullopt;
+  }
+#define DEBUG_TYPE "serialize-spirv"
+  LLVM_DEBUG({
+    llvm::dbgs() << "SPIRV IR for module: " << gpuMod.getNameAttr()
+                 << "\n"
+                 << serializedISA << "\n";
+  });
+#undef DEBUG_TYPE
+#endif
   spvMod.erase();
   return spvData;
 }

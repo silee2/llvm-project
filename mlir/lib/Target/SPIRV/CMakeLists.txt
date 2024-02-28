@@ -38,3 +38,10 @@ add_mlir_dialect_library(MLIRSPIRVTarget
   MLIRSPIRVSerialization
   MLIRSupport
   )
+
+if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
+  target_link_libraries(MLIRSPIRVTarget
+  PRIVATE
+    SPIRV-Tools-static
+  )
+endif()

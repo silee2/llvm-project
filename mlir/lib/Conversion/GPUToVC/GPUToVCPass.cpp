@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/SPIRV/IR/SPIRVAttributes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -34,6 +35,7 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVEnums.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -117,6 +119,20 @@ struct GPUIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
     }
 };
 
+static IntegerAttr wrapNumericMemorySpace(MLIRContext *ctx, unsigned space) {
+  return IntegerAttr::get(IntegerType::get(ctx, 64), space);
+}
+
+void populateSPIRVMemorySpaceAttributeConversions(
+    TypeConverter &typeConverter, const std::function<unsigned(spirv::StorageClass)> &mapping) {
+  typeConverter.addTypeAttributeConversion(
+      [mapping](BaseMemRefType type, spirv::StorageClassAttr memorySpaceAttr) {
+        spirv::StorageClass memorySpace = memorySpaceAttr.getValue();
+        unsigned addressSpace = mapping(memorySpace);
+        return wrapNumericMemorySpace(memorySpaceAttr.getContext(),
+                                      addressSpace);
+      });
+}
 
 static const char get_global_id[] = "_Z13get_global_idj";
 //static const char get_local_id[] = "_Z12get_local_idj";
@@ -174,6 +190,33 @@ struct GPUToVCPass
     }
 
     LLVMTypeConverter converter(m.getContext(), options);
+    populateGpuMemorySpaceAttributeConversions(
+        converter, [](gpu::AddressSpace space) -> unsigned {
+          switch (space) {
+          case gpu::AddressSpace::Global:
+            return 1;
+          case gpu::AddressSpace::Workgroup:
+            return 3;
+          case gpu::AddressSpace::Private:
+            return 0;
+          }
+          llvm_unreachable("unknown address space enum value");
+          return 0;
+        });
+    populateSPIRVMemorySpaceAttributeConversions(
+        converter, [](spirv::StorageClass space) -> unsigned {
+          switch (space) {
+          case spirv::StorageClass::CrossWorkgroup:
+            return 1;
+          case spirv::StorageClass::Workgroup:
+            return 3;
+          case spirv::StorageClass::Private:
+            return 0;
+          }
+          llvm_unreachable("unknown address space enum value");
+          return 0;
+        });
+
     RewritePatternSet llvmPatterns(m.getContext());
 
     arith::populateArithToLLVMConversionPatterns(converter, llvmPatterns);
