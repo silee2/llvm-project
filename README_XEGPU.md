@@ -1,6 +1,15 @@
 # XeGPU lowering
+## Prerequisite
+DPC++ compiler (https://www.intel.com/content/www/us/en/developer/articles/tool/oneapi-standalone-components.html)
 
-## Config
+## Setup SYCL runtime
+Run setvars.sh from DPC++
+```
+/opt/intel/oneapi/setvars.sh
+```
+
+## Config LLVM
+Following confguration will build and use Khronos SPIR-V LLVM translator and use it
 ```
 cmake -G Ninja -B build -S llvm \
     -DCMAKE_BUILD_TYPE=Release \
@@ -13,6 +22,11 @@ cmake -G Ninja -B build -S llvm \
     -DMLIR_ENABLE_SPIRV_LLVM_TRANSLATOR=ON \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 ```
+To use LLVM's own SPIR-V backend, change MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR option to OFF
+```
+    -DMLIR_ENABLE_SPIRV_LLVM_TRANSLATOR=OFF
+```
+
 
 ## Run integration tests
 ```
