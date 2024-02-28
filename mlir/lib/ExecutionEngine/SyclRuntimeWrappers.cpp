@@ -13,6 +13,8 @@
 #include <CL/sycl.hpp>
 #include <level_zero/ze_api.h>
 #include <sycl/ext/oneapi/backend/level_zero.hpp>
+#include <cstdio>
+#include <cstdlib>
 
 #ifdef _WIN32
 #define SYCL_RUNTIME_EXPORT __declspec(dllexport)
@@ -115,10 +117,29 @@ static sycl::kernel *getKernel(ze_module_handle_t zeModule, const char *name) {
   assert(zeModule);
   assert(name);
   ze_kernel_handle_t zeKernel;
-  ze_kernel_desc_t desc = {};
-  desc.pKernelName = name;
+  ze_kernel_desc_t desc = {
+    ZE_STRUCTURE_TYPE_KERNEL_DESC,
+    nullptr,
+    0, // flags
+    name
+  };
 
-  L0_SAFE_CALL(zeKernelCreate(zeModule, &desc, &zeKernel));
+  ze_result_t result = zeKernelCreate(zeModule, &desc, &zeKernel);
+
+  // Check if there are unresolved imports
+  if (result == ZE_RESULT_ERROR_INVALID_MODULE_UNLINKED) {
+      fprintf(stdout, "Unresolved imports!!!\n");
+      fflush(stdout);
+      abort();
+  }
+
+  // Check to see if the kernel name was found in the supplied module
+  if (result == ZE_RESULT_ERROR_INVALID_KERNEL_NAME) {
+      fprintf(stdout, "Invalid kernel name: %s !!!\n", name);
+      fflush(stdout);
+      abort();
+  }
+
   sycl::kernel_bundle<sycl::bundle_state::executable> kernelBundle =
       sycl::make_kernel_bundle<sycl::backend::ext_oneapi_level_zero,
                                sycl::bundle_state::executable>(
@@ -137,7 +158,16 @@ static void launchKernel(sycl::queue *queue, sycl::kernel *kernel, size_t gridX,
       sycl::range<3>(blockZ * gridZ, blockY * gridY, blockX * gridX);
   auto syclLocalRange = sycl::range<3>(blockZ, blockY, blockX);
   sycl::nd_range<3> syclNdRange(syclGlobalRange, syclLocalRange);
-
+#if 0
+  fprintf(stdout, "gridX: %d, ", gridX);
+  fprintf(stdout, "gridY: %d, ", gridY);
+  fprintf(stdout, "gridZ: %d, ", gridZ);
+  fprintf(stdout, "blockX: %d, ", blockX);
+  fprintf(stdout, "blockY: %d, ", blockY);
+  fprintf(stdout, "blockZ: %d, ", blockZ);
+  fprintf(stdout, "paramsCount: %d\n", paramsCount);
+  fflush(stdout);
+#endif
   queue->submit([&](sycl::handler &cgh) {
     for (size_t i = 0; i < paramsCount; i++) {
       cgh.set_arg(static_cast<uint32_t>(i), *(static_cast<void **>(params[i])));

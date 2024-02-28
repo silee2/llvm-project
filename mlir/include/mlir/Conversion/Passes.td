@@ -581,6 +581,12 @@ def ConvertXeGPUToVC : Pass<"convert-xegpu-to-vc"> {
 
 def ConvertGPUToVC : Pass<"convert-gpu-to-vc", "gpu::GPUModuleOp"> {
   let summary = "Generate vc-intrinsics operations for gpu operations";
+  let options = [
+    Option<"useBarePtrCallConv", "use-bare-ptr-memref-call-conv", "bool",
+           /*default=*/"true",
+           "Replace memref arguments in GPU functions with bare pointers."
+           "All memrefs must have static shape">
+  ];
   let dependentDialects = [
     "cf::ControlFlowDialect",
     "memref::MemRefDialect",

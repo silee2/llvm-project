@@ -13,6 +13,7 @@
 
 #include "mlir/Target/LLVM/SPIR64/Target.h"
 
+#include "LLVMSPIRVOpts.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/SPIR64Dialect.h"
 #include "mlir/Target/LLVM/SPIR64/Utils.h"
@@ -146,7 +147,7 @@ compileToBinary(const std::string &serializedISA) {
 std::optional<SmallVector<char, 0>>
 SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   // Return LLVM IR if the compilation target is offload.
-#define DEBUG_TYPE "serialize-to-llvm"
+#define DEBUG_TYPE "serialize-spir-to-llvm"
   LLVM_DEBUG({
     llvm::dbgs() << "LLVM IR for module: " << getOperation().getNameAttr()
                  << "\n"
@@ -177,7 +178,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       getOperation().emitError() << "Failed translating the module to ISA.";
       return std::nullopt;
     }
-#define DEBUG_TYPE "serialize-to-isa"
+#define DEBUG_TYPE "serialize-spir-to-isa"
     LLVM_DEBUG({
       llvm::dbgs() << "ISA for module: " << getOperation().getNameAttr() << "\n"
                    << *serializedISA << "\n";
@@ -189,7 +190,13 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     spvtools::SpirvTools spvTool(SPV_ENV_OPENCL_2_0);
     std::string err;
     std::ostringstream outStream;
-    bool Success = writeSpirv(&llvmModule, outStream, err);
+    SPIRV::TranslatorOpts Opts(SPIRV::VersionNumber::SPIRV_1_4);
+    Opts.enableAllExtensions();
+    Opts.setMemToRegEnabled(true);
+    Opts.setPreserveOCLKernelArgTypeMetadataThroughString(true);
+    Opts.setPreserveAuxData(false);
+    Opts.setSPIRVAllowUnknownIntrinsics({"llvm.genx."});
+    bool Success = writeSpirv(&llvmModule, Opts, outStream, err);
     if (!Success) {
       getOperation().emitError()
           << "Failed translating the module to ISA. " << err;
@@ -202,7 +209,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       getOperation().emitError() << "Failed translating the module to ISA.";
       return std::nullopt;
     }
-#define DEBUG_TYPE "serialize-to-isa"
+#define DEBUG_TYPE "serialize-spir-to-isa-khronos"
     LLVM_DEBUG({
       llvm::dbgs() << "ISA for module: " << getOperation().getNameAttr() << "\n"
                    << serializedISA << "\n";
@@ -221,7 +228,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       getOperation().emitError() << "Failed translating the module to Binary.";
       return std::nullopt;
     }
-#define DEBUG_TYPE "serialize-to-binary"
+#define DEBUG_TYPE "serialize-spir-to-binary"
     LLVM_DEBUG({
       llvm::dbgs() << "ISA binary for module: " << getOperation().getNameAttr()
                    << "\n"
@@ -234,14 +241,21 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
 #else
     std::string err;
     std::ostringstream outStream;
-    bool Success = writeSpirv(&llvmModule, outStream, err);
+    SPIRV::TranslatorOpts Opts(SPIRV::VersionNumber::SPIRV_1_4);
+    Opts.enableAllExtensions();
+    Opts.setMemToRegEnabled(true);
+    Opts.setPreserveOCLKernelArgTypeMetadataThroughString(true);
+    Opts.setPreserveAuxData(false);
+    Opts.setSPIRVAllowUnknownIntrinsics({"llvm.genx."});
+
+    bool Success = writeSpirv(&llvmModule, Opts, outStream, err);
     if (!Success) {
       getOperation().emitError()
           << "Failed translating the module to Binary. " << err;
       return std::nullopt;
     }
     std::string serializedISABinary = outStream.str();
-#define DEBUG_TYPE "serialize-to-binary"
+#define DEBUG_TYPE "serialize-spir-to-binary-khronos"
     LLVM_DEBUG({
       llvm::dbgs() << "ISA binary for module: " << getOperation().getNameAttr()
                    << "\n"

@@ -119,9 +119,11 @@ struct GPUIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
 
 
 static const char get_global_id[] = "_Z13get_global_idj";
-static const char get_local_id[] = "_Z12get_local_idj";
+//static const char get_local_id[] = "_Z12get_local_idj";
+static const char get_local_id[] = "_Z32__spirv_BuiltInLocalInvocationIdi";
 static const char get_local_size[] = "_Z12get_local_sizej";
-static const char get_group_id[] = "_Z12get_group_idj";
+//static const char get_group_id[] = "_Z12get_group_idj";
+static const char get_group_id[] = "_Z26__spirv_BuiltInWorkgroupIdi";
 static const char get_num_groups[] = "_Z14get_num_groupsj";
 
 /// A pass that replaces all occurrences of GPU device operations with their
@@ -142,9 +144,17 @@ struct GPUToVCPass
                     UnitAttr::get(&getContext()));
     }
 
+    // Collect kernels that need calling convention patch later
+    llvm::SmallVector<StringRef, 4> kernels;
+    for (auto gfunc : m.getOps<gpu::GPUFuncOp>()) {
+      if(gfunc.isKernel())
+        kernels.push_back(gfunc.getName());
+    }
+
     LowerToLLVMOptions options(
         m.getContext(),
         DataLayout(cast<DataLayoutOpInterface>(m.getOperation())));
+    options.useBarePtrCallConv = useBarePtrCallConv;
 
     // Apply in-dialect lowering. In-dialect lowering will replace
     // ops which need to be lowered further, which is not supported by a
@@ -179,6 +189,31 @@ struct GPUToVCPass
     LLVMConversionTarget target(getContext());
     if (failed(applyPartialConversion(m, target, std::move(llvmPatterns))))
       signalPassFailure();
+
+    // Post processing after lowering to LLVM
+
+    // Apply Calling convention for spir
+    // spir_kernel for kernel and spir_func for others.
+    for (auto lfunc : m.getOps<LLVM::LLVMFuncOp>())
+    {
+      bool isKernel = false;
+      StringRef lfuncName = lfunc.getName();
+      for (StringRef kname : kernels) {
+        if(kname == lfuncName)
+          isKernel = true;
+      }
+      if (isKernel) {
+        lfunc.setCConv(LLVM::cconv::CConv::SPIR_KERNEL);
+      } else {
+        lfunc.setCConv(LLVM::cconv::CConv::SPIR_FUNC);
+      }
+    }
+
+    // Set gpu.module's data_layout and target attribute
+    {
+      //m->setAttr();
+      //m->setAttr();
+    }
   }
 };
 
