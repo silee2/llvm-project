@@ -296,6 +296,7 @@ defm SPV_INTEL_fpga_latency_control : ExtensionOperand<101>;
 defm SPV_INTEL_fpga_argument_interfaces : ExtensionOperand<102>;
 defm SPV_INTEL_optnone : ExtensionOperand<103>;
 defm SPV_INTEL_function_pointers : ExtensionOperand<104>;
+defm SPV_INTEL_vector_compute : ExtensionOperand<105>;
 
 //===----------------------------------------------------------------------===//
 // Multiclass used to define Capabilities enum values and at the same time
@@ -455,6 +456,8 @@ defm BitInstructions : CapabilityOperand<6025, 0, 0, [SPV_KHR_bit_instructions],
 defm ExpectAssumeKHR : CapabilityOperand<5629, 0, 0, [SPV_KHR_expect_assume], []>;
 defm FunctionPointersINTEL : CapabilityOperand<5603, 0, 0, [SPV_INTEL_function_pointers], []>;
 defm IndirectReferencesINTEL : CapabilityOperand<5604, 0, 0, [SPV_INTEL_function_pointers], []>;
+defm VectorAnyINTEL : CapabilityOperand<5619, 0, 0, [SPV_INTEL_vector_compute], []>;
+defm VectorComputeINTEL : CapabilityOperand<5617, 0, 0, [SPV_INTEL_vector_compute], []>;
 
 //===----------------------------------------------------------------------===//
 // Multiclass used to define SourceLanguage enum values and at the same time
