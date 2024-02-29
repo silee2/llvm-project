@@ -134,13 +134,21 @@ void populateSPIRVMemorySpaceAttributeConversions(
       });
 }
 
-static const char get_global_id[] = "_Z13get_global_idj";
+//static const char get_global_id[] = "_Z13get_global_idj";
+static const char get_global_id[] = "_Z33__spirv_BuiltInGlobalInvocationIdi";
 //static const char get_local_id[] = "_Z12get_local_idj";
 static const char get_local_id[] = "_Z32__spirv_BuiltInLocalInvocationIdi";
-static const char get_local_size[] = "_Z12get_local_sizej";
+//static const char get_local_size[] = "_Z12get_local_sizej";
+static const char get_local_size[] = "_Z28__spirv_BuiltInWorkgroupSizei";
 //static const char get_group_id[] = "_Z12get_group_idj";
 static const char get_group_id[] = "_Z26__spirv_BuiltInWorkgroupIdi";
-static const char get_num_groups[] = "_Z14get_num_groupsj";
+//static const char get_num_groups[] = "_Z14get_num_groupsj";
+static const char get_num_groups[] = "_Z28__spirv_BuiltInNumWorkgroupsi";
+
+/*
+_Z25__spirv_BuiltInGlobalSizei
+_Z29__spirv_BuiltInGlobalLinearIdv
+*/
 
 /// A pass that replaces all occurrences of GPU device operations with their
 /// corresponding VC intrinsics equivalent.
