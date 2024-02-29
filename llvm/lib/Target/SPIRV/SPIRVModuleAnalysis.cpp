@@ -753,8 +753,13 @@ void addInstrRequirements(const MachineInstr &MI,
   }
   case SPIRV::OpTypeVector: {
     unsigned NumComponents = MI.getOperand(2).getImm();
-    if (NumComponents == 8 || NumComponents == 16)
-      Reqs.addCapability(SPIRV::Capability::Vector16);
+    if (ST.canUseExtension(SPIRV::Extension::SPV_INTEL_vector_compute)) {
+      Reqs.addCapability(SPIRV::Capability::VectorAnyINTEL);
+      Reqs.addCapability(SPIRV::Capability::VectorComputeINTEL);
+    } else {
+      if (NumComponents == 8 || NumComponents == 16)
+        Reqs.addCapability(SPIRV::Capability::Vector16);
+    }
     break;
   }
   case SPIRV::OpTypePointer: {

@@ -153,9 +153,21 @@ SPIRVLegalizerInfo::SPIRVLegalizerInfo(const SPIRVSubtarget &ST) {
 
   getActionDefinitionsBuilder({G_LOAD, G_STORE}).legalIf(typeInSet(1, allPtrs));
 
-  getActionDefinitionsBuilder(G_BITREVERSE).legalFor(allFloatScalarsAndVectors);
+  auto canUseVC = [&](const LegalityQuery &Q) {
+            return ST.canUseExtension(SPIRV::Extension::SPV_INTEL_vector_compute);
+          };
 
-  getActionDefinitionsBuilder(G_FMA).legalFor(allFloatScalarsAndVectors);
+  // getActionDefinitionsBuilder(G_BITREVERSE).legalFor(allFloatScalarsAndVectors);
+  getActionDefinitionsBuilder(G_BITREVERSE).legalIf(
+      LegalityPredicates::any(
+          typeInSet(0,allFloatScalarsAndVectors),
+          LegalityPredicate(canUseVC)));
+
+  // getActionDefinitionsBuilder(G_FMA).legalFor(allFloatScalarsAndVectors);
+  getActionDefinitionsBuilder(G_FMA).legalIf(
+      LegalityPredicates::any(
+          typeInSet(0,allFloatScalarsAndVectors),
+          LegalityPredicate(canUseVC)));
 
   getActionDefinitionsBuilder({G_FPTOSI, G_FPTOUI})
       .legalForCartesianProduct(allIntScalarsAndVectors,
