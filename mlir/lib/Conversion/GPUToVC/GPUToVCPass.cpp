@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVAttributes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -119,6 +120,30 @@ struct GPUIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
     }
 };
 
+template <typename Op, const char * FName>
+struct GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
+    public:
+        using OpRewritePattern<Op>::OpRewritePattern;
+    LogicalResult
+    matchAndRewrite(Op op,
+            PatternRewriter &rewriter) const override {
+    auto loc = op->getLoc();
+    MLIRContext *context = rewriter.getContext();
+
+    Type i32Ty = IntegerType::get(context, 32);
+    llvm::SmallVector<mlir::Value> operands;
+    func::CallOp newOp = createFuncCall(rewriter, loc, FName, TypeRange{i32Ty}, operands, false);
+    Type indexTy = rewriter.getIndexType();
+    if (i32Ty != indexTy) {
+      Value castVal = rewriter.create<arith::IndexCastOp>(op->getLoc(), indexTy, newOp->getResult(0));
+      rewriter.replaceOp(op, castVal);
+    } else {
+      rewriter.replaceOp(op, newOp);
+    }
+    return success();
+    }
+};
+
 static IntegerAttr wrapNumericMemorySpace(MLIRContext *ctx, unsigned space) {
   return IntegerAttr::get(IntegerType::get(ctx, 64), space);
 }
@@ -144,6 +169,14 @@ static const char get_local_size[] = "_Z28__spirv_BuiltInWorkgroupSizei";
 static const char get_group_id[] = "_Z26__spirv_BuiltInWorkgroupIdi";
 //static const char get_num_groups[] = "_Z14get_num_groupsj";
 static const char get_num_groups[] = "_Z28__spirv_BuiltInNumWorkgroupsi";
+//static const char get_sub_group_id[] = "_Z16get_sub_group_idv";
+static const char get_sub_group_id[] = "_Z25__spirv_BuiltInSubgroupIdv";
+//static const char get_sub_group_local_id[] = "_Z22get_sub_group_local_idv";
+static const char get_sub_group_local_id[] = "_Z40__spirv_BuiltInSubgroupLocalInvocationIdv";
+//static const char get_num_sub_groups[] = "_Z18get_num_sub_groupsv";
+static const char get_num_sub_groups[] = "_Z27__spirv_BuiltInNumSubgroupsv";
+//static const char get_sub_group_size[] = "_Z18get_sub_group_sizev";
+static const char get_sub_group_size[] = "_Z27__spirv_BuiltInSubgroupSizev";
 
 /*
 _Z25__spirv_BuiltInGlobalSizei
@@ -191,12 +224,15 @@ struct GPUToVCPass
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::BlockDimOp, get_local_size>,
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::BlockIdOp, get_group_id>,
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GridDimOp, get_num_groups>,
-          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GlobalIdOp, get_global_id>
+          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GlobalIdOp, get_global_id>,
+          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::SubgroupIdOp, get_sub_group_id>,
+          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::LaneIdOp, get_sub_group_local_id>,
+          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::NumSubgroupsOp, get_num_sub_groups>,
+          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::SubgroupSizeOp, get_sub_group_size>
           >(patterns.getContext());
       if (failed(applyPatternsAndFoldGreedily(m, std::move(patterns))))
         return signalPassFailure();
     }
-
     LLVMTypeConverter converter(m.getContext(), options);
     populateGpuMemorySpaceAttributeConversions(
         converter, [](gpu::AddressSpace space) -> unsigned {
