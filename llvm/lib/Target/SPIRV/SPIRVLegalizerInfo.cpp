@@ -153,44 +153,56 @@ SPIRVLegalizerInfo::SPIRVLegalizerInfo(const SPIRVSubtarget &ST) {
 
   getActionDefinitionsBuilder({G_LOAD, G_STORE}).legalIf(typeInSet(1, allPtrs));
 
-  auto canUseVC = [&](const LegalityQuery &Q) {
+  auto canUseIVC = [&](const LegalityQuery &Q) {
             return ST.canUseExtension(SPIRV::Extension::SPV_INTEL_vector_compute);
           };
 
-  // getActionDefinitionsBuilder(G_BITREVERSE).legalFor(allFloatScalarsAndVectors);
   getActionDefinitionsBuilder(G_BITREVERSE).legalIf(
       LegalityPredicates::any(
           typeInSet(0,allFloatScalarsAndVectors),
-          LegalityPredicate(canUseVC)));
+          LegalityPredicate(canUseIVC)));
 
-  // getActionDefinitionsBuilder(G_FMA).legalFor(allFloatScalarsAndVectors);
   getActionDefinitionsBuilder(G_FMA).legalIf(
       LegalityPredicates::any(
           typeInSet(0,allFloatScalarsAndVectors),
-          LegalityPredicate(canUseVC)));
+          LegalityPredicate(canUseIVC)));
 
   getActionDefinitionsBuilder({G_FPTOSI, G_FPTOUI})
-      .legalForCartesianProduct(allIntScalarsAndVectors,
-                                allFloatScalarsAndVectors);
+      .legalIf(LegalityPredicates::any(
+                  all(typeInSet(0, allIntScalarsAndVectors),
+                      typeInSet(1, allFloatScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
   getActionDefinitionsBuilder({G_SITOFP, G_UITOFP})
-      .legalForCartesianProduct(allFloatScalarsAndVectors,
-                                allScalarsAndVectors);
+      .legalIf(LegalityPredicates::any(
+                  all(typeInSet(0, allFloatScalarsAndVectors),
+                      typeInSet(1, allScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
   getActionDefinitionsBuilder({G_SMIN, G_SMAX, G_UMIN, G_UMAX, G_ABS})
-      .legalFor(allIntScalarsAndVectors);
+      .legalIf(LegalityPredicates::any(
+          typeInSet(0,allIntScalarsAndVectors),
+          LegalityPredicate(canUseIVC)));
 
-  getActionDefinitionsBuilder(G_CTPOP).legalForCartesianProduct(
-      allIntScalarsAndVectors, allIntScalarsAndVectors);
+  getActionDefinitionsBuilder(G_CTPOP)
+      .legalIf(LegalityPredicates::any(
+                  all(typeInSet(0, allIntScalarsAndVectors),
+                      typeInSet(1, allIntScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
-  getActionDefinitionsBuilder(G_PHI).legalFor(allPtrsScalarsAndVectors);
+  getActionDefinitionsBuilder(G_PHI)
+      .legalIf(LegalityPredicates::any(
+          typeInSet(0,allPtrsScalarsAndVectors),
+          LegalityPredicate(canUseIVC)));
 
-  getActionDefinitionsBuilder(G_BITCAST).legalIf(all(
+  getActionDefinitionsBuilder(G_BITCAST).legalIf(LegalityPredicates::any(
+      all(
       typeInSet(0, allPtrsScalarsAndVectors),
       typeInSet(1, allPtrsScalarsAndVectors),
       LegalityPredicate(([=](const LegalityQuery &Query) {
         return Query.Types[0].getSizeInBits() == Query.Types[1].getSizeInBits();
-      }))));
+      }))),
+      LegalityPredicate(canUseIVC)));
 
   getActionDefinitionsBuilder(G_IMPLICIT_DEF).alwaysLegal();
 
@@ -204,12 +216,16 @@ SPIRVLegalizerInfo::SPIRVLegalizerInfo(const SPIRVSubtarget &ST) {
   // ST.canDirectlyComparePointers() for pointer args is supported in
   // legalizeCustom().
   getActionDefinitionsBuilder(G_ICMP).customIf(
-      all(typeInSet(0, allBoolScalarsAndVectors),
-          typeInSet(1, allPtrsScalarsAndVectors)));
+      LegalityPredicates::any(
+                  all(typeInSet(0, allBoolScalarsAndVectors),
+                      typeInSet(1, allPtrsScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
   getActionDefinitionsBuilder(G_FCMP).legalIf(
-      all(typeInSet(0, allBoolScalarsAndVectors),
-          typeInSet(1, allFloatScalarsAndVectors)));
+      LegalityPredicates::any(
+                  all(typeInSet(0, allBoolScalarsAndVectors),
+                      typeInSet(1, allFloatScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
   getActionDefinitionsBuilder({G_ATOMICRMW_OR, G_ATOMICRMW_ADD, G_ATOMICRMW_AND,
                                G_ATOMICRMW_MAX, G_ATOMICRMW_MIN,
@@ -229,11 +245,17 @@ SPIRVLegalizerInfo::SPIRVLegalizerInfo(const SPIRVSubtarget &ST) {
 
   // Extensions.
   getActionDefinitionsBuilder({G_TRUNC, G_ZEXT, G_SEXT, G_ANYEXT})
-      .legalForCartesianProduct(allScalarsAndVectors);
+      .legalIf(LegalityPredicates::any(
+                  all(typeInSet(0, allScalarsAndVectors),
+                      typeInSet(1, allScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
   // FP conversions.
   getActionDefinitionsBuilder({G_FPTRUNC, G_FPEXT})
-      .legalForCartesianProduct(allFloatScalarsAndVectors);
+      .legalIf(LegalityPredicates::any(
+                  all(typeInSet(0, allFloatScalarsAndVectors),
+                      typeInSet(1, allFloatScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
   // Pointer-handling.
   getActionDefinitionsBuilder(G_FRAME_INDEX).legalFor({p0});
@@ -266,20 +288,29 @@ SPIRVLegalizerInfo::SPIRVLegalizerInfo(const SPIRVSubtarget &ST) {
                                G_FMINIMUM,
                                G_FMAXIMUM,
                                G_INTRINSIC_ROUNDEVEN})
-      .legalFor(allFloatScalarsAndVectors);
+      .legalIf(LegalityPredicates::any(
+          typeInSet(0,allFloatScalarsAndVectors),
+          LegalityPredicate(canUseIVC)));
 
   getActionDefinitionsBuilder(G_FCOPYSIGN)
-      .legalForCartesianProduct(allFloatScalarsAndVectors,
-                                allFloatScalarsAndVectors);
+      .legalIf(LegalityPredicates::any(
+                  all(typeInSet(0, allFloatScalarsAndVectors),
+                      typeInSet(1, allFloatScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
-  getActionDefinitionsBuilder(G_FPOWI).legalForCartesianProduct(
-      allFloatScalarsAndVectors, allIntScalarsAndVectors);
+  getActionDefinitionsBuilder(G_FPOWI)
+      .legalIf(LegalityPredicates::any(
+                  all(typeInSet(0, allFloatScalarsAndVectors),
+                      typeInSet(1, allIntScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
   if (ST.canUseExtInstSet(SPIRV::InstructionSet::OpenCL_std)) {
     getActionDefinitionsBuilder(
         {G_CTTZ, G_CTTZ_ZERO_UNDEF, G_CTLZ, G_CTLZ_ZERO_UNDEF})
-        .legalForCartesianProduct(allIntScalarsAndVectors,
-                                  allIntScalarsAndVectors);
+        .legalIf(LegalityPredicates::any(
+                  all(typeInSet(0, allIntScalarsAndVectors),
+                      typeInSet(1, allIntScalarsAndVectors)),
+                  LegalityPredicate(canUseIVC)));
 
     // Struct return types become a single scalar, so cannot easily legalize.
     getActionDefinitionsBuilder({G_SMULH, G_UMULH}).alwaysLegal();
