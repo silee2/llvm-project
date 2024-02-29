@@ -1052,12 +1052,6 @@ static void collectReqs(const Module &M, SPIRV::ModuleAnalysisInfo &MAI,
       MAI.Reqs.addCapability(SPIRV::Capability::OptNoneINTEL);
     }
   }
-  if(ST.canUseExtension(SPIRV::Extension::SPV_INTEL_vector_compute)) {
-    MAI.Reqs.addExtension(SPIRV::Extension::SPV_INTEL_vector_compute);
-    MAI.Reqs.addCapability(SPIRV::Capability::VectorAnyINTEL);
-    MAI.Reqs.addCapability(SPIRV::Capability::VectorComputeINTEL);
-  }
-
 }
 
 static unsigned getFastMathFlags(const MachineInstr &I) {
