@@ -11,8 +11,8 @@
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
-#include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Pass/Pass.h"
@@ -34,21 +34,22 @@ struct ConvertXeGPUToVCPass
 
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
-/*
-    // some example code for looking up intrinsic id and
-    // checking if id is supported for platform
-    OpBuilder builder(context);
-    builder.setInsertionPoint(m.getBody(),
-                              m.getBody()->begin());
-    // instead of default builder, need a wrapper that checks GPU and name
-    //builder.create<LLVM::CallIntrinsicOp>(m.getLoc(),
-    llvm::GenXIntrinsic::ID id = llvm::GenXIntrinsic::lookupGenXIntrinsicID("llvm.genx.simdcf.get.em");
-    std::cout << "GenXIntrinsic ID: " << id << std::endl;
-    bool isSup = llvm::GenXIntrinsic::isSupportedPlatform("XeLP", id);
-    std::cout << "Is supported platform: " << (isSup ? "y" : "n") << std::endl;
-    if(!llvm::GenXIntrinsic::isGenXIntrinsic(id))
-        signalPassFailure();
-*/
+    /*
+        // some example code for looking up intrinsic id and
+        // checking if id is supported for platform
+        OpBuilder builder(context);
+        builder.setInsertionPoint(m.getBody(),
+                                  m.getBody()->begin());
+        // instead of default builder, need a wrapper that checks GPU and name
+        //builder.create<LLVM::CallIntrinsicOp>(m.getLoc(),
+        llvm::GenXIntrinsic::ID id =
+       llvm::GenXIntrinsic::lookupGenXIntrinsicID("llvm.genx.simdcf.get.em");
+        std::cout << "GenXIntrinsic ID: " << id << std::endl;
+        bool isSup = llvm::GenXIntrinsic::isSupportedPlatform("XeLP", id);
+        std::cout << "Is supported platform: " << (isSup ? "y" : "n") <<
+       std::endl; if(!llvm::GenXIntrinsic::isGenXIntrinsic(id))
+            signalPassFailure();
+    */
 
     RewritePatternSet patterns(ctx);
     LLVMTypeConverter converter(ctx);
@@ -62,8 +63,7 @@ struct ConvertXeGPUToVCPass
 };
 
 void mlir::populateXeGPUToVCConversionPatterns(LLVMTypeConverter &converter,
-                                                   RewritePatternSet &patterns) {
-}
+                                               RewritePatternSet &patterns) {}
 
 std::unique_ptr<Pass> mlir::createConvertXeGPUToVCPass() {
   return std::make_unique<ConvertXeGPUToVCPass>();

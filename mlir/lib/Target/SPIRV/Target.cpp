@@ -91,16 +91,14 @@ std::optional<SmallVector<char, 0>> SPIRVTargetAttrImpl::serializeToObject(
 #if MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 1
   spvtools::SpirvTools spvTool(SPV_ENV_OPENCL_2_0);
   std::string serializedISA;
-  if (!spvTool.Disassemble(
-            reinterpret_cast<const uint32_t *>(spvBinary.data()),
-            spvBinary.size(), &serializedISA)) {
-      gpuMod.emitError() << "Failed translating the module to ISA.";
-      return std::nullopt;
+  if (!spvTool.Disassemble(reinterpret_cast<const uint32_t *>(spvBinary.data()),
+                           spvBinary.size(), &serializedISA)) {
+    gpuMod.emitError() << "Failed translating the module to ISA.";
+    return std::nullopt;
   }
 #define DEBUG_TYPE "serialize-spirv"
   LLVM_DEBUG({
-    llvm::dbgs() << "SPIRV IR for module: " << gpuMod.getNameAttr()
-                 << "\n"
+    llvm::dbgs() << "SPIRV IR for module: " << gpuMod.getNameAttr() << "\n"
                  << serializedISA << "\n";
   });
 #undef DEBUG_TYPE

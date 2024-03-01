@@ -11,10 +11,10 @@
 //===----------------------------------------------------------------------===//
 
 #include <CL/sycl.hpp>
-#include <level_zero/ze_api.h>
-#include <sycl/ext/oneapi/backend/level_zero.hpp>
 #include <cstdio>
 #include <cstdlib>
+#include <level_zero/ze_api.h>
+#include <sycl/ext/oneapi/backend/level_zero.hpp>
 
 #ifdef _WIN32
 #define SYCL_RUNTIME_EXPORT __declspec(dllexport)
@@ -117,27 +117,24 @@ static sycl::kernel *getKernel(ze_module_handle_t zeModule, const char *name) {
   assert(zeModule);
   assert(name);
   ze_kernel_handle_t zeKernel;
-  ze_kernel_desc_t desc = {
-    ZE_STRUCTURE_TYPE_KERNEL_DESC,
-    nullptr,
-    0, // flags
-    name
-  };
+  ze_kernel_desc_t desc = {ZE_STRUCTURE_TYPE_KERNEL_DESC, nullptr,
+                           0, // flags
+                           name};
 
   ze_result_t result = zeKernelCreate(zeModule, &desc, &zeKernel);
 
   // Check if there are unresolved imports
   if (result == ZE_RESULT_ERROR_INVALID_MODULE_UNLINKED) {
-      fprintf(stdout, "Unresolved imports!!!\n");
-      fflush(stdout);
-      abort();
+    fprintf(stdout, "Unresolved imports!!!\n");
+    fflush(stdout);
+    abort();
   }
 
   // Check to see if the kernel name was found in the supplied module
   if (result == ZE_RESULT_ERROR_INVALID_KERNEL_NAME) {
-      fprintf(stdout, "Invalid kernel name: %s !!!\n", name);
-      fflush(stdout);
-      abort();
+    fprintf(stdout, "Invalid kernel name: %s !!!\n", name);
+    fflush(stdout);
+    abort();
   }
 
   sycl::kernel_bundle<sycl::bundle_state::executable> kernelBundle =

@@ -21,7 +21,7 @@ class Pass;
 #include "mlir/Conversion/Passes.h.inc"
 
 void populateXeGPUToVCConversionPatterns(LLVMTypeConverter &converter,
-                                             RewritePatternSet &patterns);
+                                         RewritePatternSet &patterns);
 
 std::unique_ptr<Pass> createConvertXeGPUToVCPass();
 

@@ -114,7 +114,7 @@ namespace {
 class SPIRVSerializer : public SerializeGPUModuleBase {
 public:
   SPIRVSerializer(Operation &module, SPIRTargetAttr target,
-                   const gpu::TargetOptions &targetOptions);
+                  const gpu::TargetOptions &targetOptions);
 
   gpu::GPUModuleOp getOperation();
 
@@ -131,7 +131,7 @@ private:
 } // namespace
 
 SPIRVSerializer::SPIRVSerializer(Operation &module, SPIRTargetAttr target,
-                                   const gpu::TargetOptions &targetOptions)
+                                 const gpu::TargetOptions &targetOptions)
     : SerializeGPUModuleBase(module, target, targetOptions),
       targetOptions(targetOptions) {}
 
@@ -157,7 +157,8 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   if (targetOptions.getCompilationTarget() == gpu::CompilationTarget::Offload)
     return SerializeGPUModuleBase::moduleToObject(llvmModule);
 
-#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 && MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
+#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
+    MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   std::optional<llvm::TargetMachine *> targetMachine =
       getOrCreateTargetMachine();
   if (!targetMachine) {
@@ -262,7 +263,8 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
                    << serializedISABinary << "\n";
     });
 #undef DEBUG_TYPE
-    return SmallVector<char, 0>(serializedISABinary.begin(), serializedISABinary.end());
+    return SmallVector<char, 0>(serializedISABinary.begin(),
+                                serializedISABinary.end());
 #endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   }
 #endif // MLIR_SPIRV_CONVERSIONS_ENABLED
@@ -273,9 +275,9 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   return std::nullopt;
 }
 
-std::optional<SmallVector<char, 0>> SPIRTargetAttrImpl::serializeToObject(
-    Attribute attribute, Operation *module,
-    const gpu::TargetOptions &options) const {
+std::optional<SmallVector<char, 0>>
+SPIRTargetAttrImpl::serializeToObject(Attribute attribute, Operation *module,
+                                      const gpu::TargetOptions &options) const {
   assert(module && "The module must be non null.");
   if (!module)
     return std::nullopt;
@@ -283,16 +285,15 @@ std::optional<SmallVector<char, 0>> SPIRTargetAttrImpl::serializeToObject(
     module->emitError("Module must be a GPU module.");
     return std::nullopt;
   }
-  SPIRVSerializer serializer(*module, cast<SPIRTargetAttr>(attribute),
-                              options);
+  SPIRVSerializer serializer(*module, cast<SPIRTargetAttr>(attribute), options);
   serializer.init();
   return serializer.run();
 }
 
 Attribute
 SPIRTargetAttrImpl::createObject(Attribute attribute,
-                                  const SmallVector<char, 0> &object,
-                                  const gpu::TargetOptions &options) const {
+                                 const SmallVector<char, 0> &object,
+                                 const gpu::TargetOptions &options) const {
   gpu::CompilationTarget format = options.getCompilationTarget();
   Builder builder(attribute.getContext());
   return builder.getAttr<gpu::ObjectAttr>(

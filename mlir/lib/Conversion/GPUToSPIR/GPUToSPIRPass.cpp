@@ -1,4 +1,5 @@
-//===- GPUToSPIRPass.cpp - MLIR GPU to VC lowering passes -------------------===//
+//===- GPUToSPIRPass.cpp - MLIR GPU to VC lowering passes
+//-------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -13,14 +14,13 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVAttributes.h"
+#include "mlir/IR/DialectRegistry.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include "mlir/IR/DialectRegistry.h"
 
 #include "mlir/Conversion/GPUToSPIR/GPUToSPIRPass.h"
 
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
@@ -36,6 +36,7 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVEnums.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -59,9 +60,9 @@ using namespace mlir;
 namespace {
 
 static FlatSymbolRefAttr getFuncRefAttr(gpu::GPUModuleOp module, StringRef name,
-                                               TypeRange resultType,
-                                               ValueRange operands,
-                                               bool emitCInterface) {
+                                        TypeRange resultType,
+                                        ValueRange operands,
+                                        bool emitCInterface) {
   MLIRContext *context = module.getContext();
   auto result = SymbolRefAttr::get(context, name);
   auto func = module.lookupSymbol<func::FuncOp>(result.getAttr());
@@ -70,7 +71,8 @@ static FlatSymbolRefAttr getFuncRefAttr(gpu::GPUModuleOp module, StringRef name,
     func = moduleBuilder.create<func::FuncOp>(
         module.getLoc(), name,
         FunctionType::get(context, operands.getTypes(), resultType));
-        //FunctionType::get(context, operands.getTypes(), {moduleBuilder.getIndexType()}));
+    // FunctionType::get(context, operands.getTypes(),
+    // {moduleBuilder.getIndexType()}));
     func.setPrivate();
     if (emitCInterface)
       func->setAttr(LLVM::LLVMDialect::getEmitCWrapperAttrName(),
@@ -79,22 +81,22 @@ static FlatSymbolRefAttr getFuncRefAttr(gpu::GPUModuleOp module, StringRef name,
   return result;
 }
 
-static func::CallOp createFuncCall(
-    PatternRewriter &rewriter, Location loc, StringRef name, TypeRange resultType,
-    ValueRange operands, bool emitCInterface) {
-  auto module = rewriter.getBlock()->getParentOp()->getParentOfType<gpu::GPUModuleOp>();
+static func::CallOp createFuncCall(PatternRewriter &rewriter, Location loc,
+                                   StringRef name, TypeRange resultType,
+                                   ValueRange operands, bool emitCInterface) {
+  auto module =
+      rewriter.getBlock()->getParentOp()->getParentOfType<gpu::GPUModuleOp>();
   FlatSymbolRefAttr fn =
       getFuncRefAttr(module, name, resultType, operands, emitCInterface);
   return rewriter.create<func::CallOp>(loc, fn, resultType, operands);
 }
 
-template <typename Op, const char * FName>
+template <typename Op, const char *FName>
 struct GPUIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
-    public:
-        using OpRewritePattern<Op>::OpRewritePattern;
-    LogicalResult
-    matchAndRewrite(Op op,
-            PatternRewriter &rewriter) const override {
+public:
+  using OpRewritePattern<Op>::OpRewritePattern;
+  LogicalResult matchAndRewrite(Op op,
+                                PatternRewriter &rewriter) const override {
     auto loc = op->getLoc();
     MLIRContext *context = rewriter.getContext();
 
@@ -103,45 +105,51 @@ struct GPUIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
     Type indexTy = rewriter.getIndexType();
     switch (op.getDimension()) {
     case gpu::Dimension::x:
-      argOp = rewriter.createOrFold<arith::ConstantOp>(loc, rewriter.getIntegerAttr(i32Ty, 0));
+      argOp = rewriter.createOrFold<arith::ConstantOp>(
+          loc, rewriter.getIntegerAttr(i32Ty, 0));
       break;
     case gpu::Dimension::y:
-      argOp = rewriter.createOrFold<arith::ConstantOp>(loc, rewriter.getIntegerAttr(i32Ty, 1));
+      argOp = rewriter.createOrFold<arith::ConstantOp>(
+          loc, rewriter.getIntegerAttr(i32Ty, 1));
       break;
     case gpu::Dimension::z:
-      argOp = rewriter.createOrFold<arith::ConstantOp>(loc, rewriter.getIntegerAttr(i32Ty, 2));
+      argOp = rewriter.createOrFold<arith::ConstantOp>(
+          loc, rewriter.getIntegerAttr(i32Ty, 2));
       break;
     }
     llvm::SmallVector<mlir::Value> operands{argOp};
-    //TypeRange resultTypes{indexTy};
-    auto newOp = createFuncCall(rewriter, loc, FName, TypeRange{indexTy}, operands, false);
+    // TypeRange resultTypes{indexTy};
+    auto newOp = createFuncCall(rewriter, loc, FName, TypeRange{indexTy},
+                                operands, false);
     rewriter.replaceOp(op, newOp);
     return success();
-    }
+  }
 };
 
-template <typename Op, const char * FName>
-struct GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering : public OpRewritePattern<Op> {
-    public:
-        using OpRewritePattern<Op>::OpRewritePattern;
-    LogicalResult
-    matchAndRewrite(Op op,
-            PatternRewriter &rewriter) const override {
+template <typename Op, const char *FName>
+struct GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering
+    : public OpRewritePattern<Op> {
+public:
+  using OpRewritePattern<Op>::OpRewritePattern;
+  LogicalResult matchAndRewrite(Op op,
+                                PatternRewriter &rewriter) const override {
     auto loc = op->getLoc();
     MLIRContext *context = rewriter.getContext();
 
     Type i32Ty = IntegerType::get(context, 32);
     llvm::SmallVector<mlir::Value> operands;
-    func::CallOp newOp = createFuncCall(rewriter, loc, FName, TypeRange{i32Ty}, operands, false);
+    func::CallOp newOp =
+        createFuncCall(rewriter, loc, FName, TypeRange{i32Ty}, operands, false);
     Type indexTy = rewriter.getIndexType();
     if (i32Ty != indexTy) {
-      Value castVal = rewriter.create<arith::IndexCastOp>(op->getLoc(), indexTy, newOp->getResult(0));
+      Value castVal = rewriter.create<arith::IndexCastOp>(op->getLoc(), indexTy,
+                                                          newOp->getResult(0));
       rewriter.replaceOp(op, castVal);
     } else {
       rewriter.replaceOp(op, newOp);
     }
     return success();
-    }
+  }
 };
 
 static IntegerAttr wrapNumericMemorySpace(MLIRContext *ctx, unsigned space) {
@@ -149,7 +157,8 @@ static IntegerAttr wrapNumericMemorySpace(MLIRContext *ctx, unsigned space) {
 }
 
 void populateSPIRVMemorySpaceAttributeConversions(
-    TypeConverter &typeConverter, const std::function<unsigned(spirv::StorageClass)> &mapping) {
+    TypeConverter &typeConverter,
+    const std::function<unsigned(spirv::StorageClass)> &mapping) {
   typeConverter.addTypeAttributeConversion(
       [mapping](BaseMemRefType type, spirv::StorageClassAttr memorySpaceAttr) {
         spirv::StorageClass memorySpace = memorySpaceAttr.getValue();
@@ -159,23 +168,24 @@ void populateSPIRVMemorySpaceAttributeConversions(
       });
 }
 
-//static const char get_global_id[] = "_Z13get_global_idj";
+// static const char get_global_id[] = "_Z13get_global_idj";
 static const char get_global_id[] = "_Z33__spirv_BuiltInGlobalInvocationIdi";
-//static const char get_local_id[] = "_Z12get_local_idj";
+// static const char get_local_id[] = "_Z12get_local_idj";
 static const char get_local_id[] = "_Z32__spirv_BuiltInLocalInvocationIdi";
-//static const char get_local_size[] = "_Z12get_local_sizej";
+// static const char get_local_size[] = "_Z12get_local_sizej";
 static const char get_local_size[] = "_Z28__spirv_BuiltInWorkgroupSizei";
-//static const char get_group_id[] = "_Z12get_group_idj";
+// static const char get_group_id[] = "_Z12get_group_idj";
 static const char get_group_id[] = "_Z26__spirv_BuiltInWorkgroupIdi";
-//static const char get_num_groups[] = "_Z14get_num_groupsj";
+// static const char get_num_groups[] = "_Z14get_num_groupsj";
 static const char get_num_groups[] = "_Z28__spirv_BuiltInNumWorkgroupsi";
-//static const char get_sub_group_id[] = "_Z16get_sub_group_idv";
+// static const char get_sub_group_id[] = "_Z16get_sub_group_idv";
 static const char get_sub_group_id[] = "_Z25__spirv_BuiltInSubgroupIdv";
-//static const char get_sub_group_local_id[] = "_Z22get_sub_group_local_idv";
-static const char get_sub_group_local_id[] = "_Z40__spirv_BuiltInSubgroupLocalInvocationIdv";
-//static const char get_num_sub_groups[] = "_Z18get_num_sub_groupsv";
+// static const char get_sub_group_local_id[] = "_Z22get_sub_group_local_idv";
+static const char get_sub_group_local_id[] =
+    "_Z40__spirv_BuiltInSubgroupLocalInvocationIdv";
+// static const char get_num_sub_groups[] = "_Z18get_num_sub_groupsv";
 static const char get_num_sub_groups[] = "_Z27__spirv_BuiltInNumSubgroupsv";
-//static const char get_sub_group_size[] = "_Z18get_sub_group_sizev";
+// static const char get_sub_group_size[] = "_Z18get_sub_group_sizev";
 static const char get_sub_group_size[] = "_Z27__spirv_BuiltInSubgroupSizev";
 
 /*
@@ -188,8 +198,7 @@ _Z29__spirv_BuiltInGlobalLinearIdv
 ///
 /// This pass only handles device code and is not meant to be run on GPU host
 /// code.
-struct GPUToSPIRPass
-    : public impl::ConvertGPUToSPIRBase<GPUToSPIRPass> {
+struct GPUToSPIRPass : public impl::ConvertGPUToSPIRBase<GPUToSPIRPass> {
   using Base::Base;
 
   void runOnOperation() override {
@@ -204,7 +213,7 @@ struct GPUToSPIRPass
     // Collect kernels that need calling convention patch later
     llvm::SmallVector<StringRef, 4> kernels;
     for (auto gfunc : m.getOps<gpu::GPUFuncOp>()) {
-      if(gfunc.isKernel())
+      if (gfunc.isKernel())
         kernels.push_back(gfunc.getName());
     }
 
@@ -220,16 +229,24 @@ struct GPUToSPIRPass
       RewritePatternSet patterns(m.getContext());
       // Convert gpu index ops to func.call to OCL builtins
       patterns.add<
-          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::ThreadIdOp, get_local_id>,
-          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::BlockDimOp, get_local_size>,
+          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::ThreadIdOp,
+                                                  get_local_id>,
+          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::BlockDimOp,
+                                                  get_local_size>,
           GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::BlockIdOp, get_group_id>,
-          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GridDimOp, get_num_groups>,
-          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GlobalIdOp, get_global_id>,
-          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::SubgroupIdOp, get_sub_group_id>,
-          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::LaneIdOp, get_sub_group_local_id>,
-          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::NumSubgroupsOp, get_num_sub_groups>,
-          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::SubgroupSizeOp, get_sub_group_size>
-          >(patterns.getContext());
+          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GridDimOp,
+                                                  get_num_groups>,
+          GPUIndexIntrinsicOpToOCLBuiltinLowering<gpu::GlobalIdOp,
+                                                  get_global_id>,
+          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::SubgroupIdOp,
+                                                          get_sub_group_id>,
+          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<
+              gpu::LaneIdOp, get_sub_group_local_id>,
+          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::NumSubgroupsOp,
+                                                          get_num_sub_groups>,
+          GPUSubgroupIndexIntrinsicOpToOCLBuiltinLowering<gpu::SubgroupSizeOp,
+                                                          get_sub_group_size>>(
+          patterns.getContext());
       if (failed(applyPatternsAndFoldGreedily(m, std::move(patterns))))
         return signalPassFailure();
     }
@@ -270,7 +287,8 @@ struct GPUToSPIRPass
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
     MLIRContext *context = &getContext();
     OpBuilder builder(context);
-    llvmPatterns.add<GPUFuncOpLowering>(converter, 0, 0, builder.getStringAttr("spir_func"));
+    llvmPatterns.add<GPUFuncOpLowering>(converter, 0, 0,
+                                        builder.getStringAttr("spir_func"));
     llvmPatterns.add<GPUReturnOpLowering>(converter);
 
     LLVMConversionTarget target(getContext());
@@ -281,12 +299,11 @@ struct GPUToSPIRPass
 
     // Apply Calling convention for spir
     // spir_kernel for kernel and spir_func for others.
-    for (auto lfunc : m.getOps<LLVM::LLVMFuncOp>())
-    {
+    for (auto lfunc : m.getOps<LLVM::LLVMFuncOp>()) {
       bool isKernel = false;
       StringRef lfuncName = lfunc.getName();
       for (StringRef kname : kernels) {
-        if(kname == lfuncName)
+        if (kname == lfuncName)
           isKernel = true;
       }
       if (isKernel) {
@@ -298,11 +315,10 @@ struct GPUToSPIRPass
 
     // Set gpu.module's data_layout and target attribute
     {
-      //m->setAttr();
-      //m->setAttr();
+      // m->setAttr();
+      // m->setAttr();
     }
   }
 };
 
 } // namespace
-

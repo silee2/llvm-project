@@ -56,7 +56,7 @@ void SPIRDialect::initialize() {
 }
 
 LogicalResult SPIRDialect::verifyOperationAttribute(Operation *op,
-                                                     NamedAttribute attr) {
+                                                    NamedAttribute attr) {
   return success();
 }
 

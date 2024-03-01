@@ -58,8 +58,7 @@ cl::list<SPIRV::Extension::Extension> Extensions(
                    "SPV_INTEL_function_pointers",
                    "Allows translation of function pointers"),
         clEnumValN(SPIRV::Extension::SPV_INTEL_vector_compute,
-                   "SPV_INTEL_vector_compute",
-                   "Allows vector compute")));
+                   "SPV_INTEL_vector_compute", "Allows vector compute")));
 
 // Compare version numbers, but allow 0 to mean unspecified.
 static bool isAtLeastVer(uint32_t Target, uint32_t VerToCompareTo) {
