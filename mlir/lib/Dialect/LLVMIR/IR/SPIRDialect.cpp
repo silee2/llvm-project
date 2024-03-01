@@ -1,4 +1,4 @@
-//===- SPIR64Dialect.cpp - SPIR64 IR Ops and Dialect registration -----------===//
+//===- SPIRDialect.cpp - SPIR IR Ops and Dialect registration -----------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,15 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines the types and operation details for the SPIR64 IR dialect in
+// This file defines the types and operation details for the SPIR IR dialect in
 // MLIR, and the LLVM IR dialect.  It also registers the dialect.
 //
-// The SPIR64 dialect only contains GPU specific additions on top of the general
+// The SPIR dialect only contains GPU specific additions on top of the general
 // LLVM dialect.
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/LLVMIR/SPIR64Dialect.h"
+#include "mlir/Dialect/LLVMIR/SPIRDialect.h"
 
 #include "mlir/Dialect/GPU/IR/CompilationInterfaces.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -31,39 +31,39 @@
 #include "llvm/Support/SourceMgr.h"
 
 using namespace mlir;
-using namespace spir64;
+using namespace spir;
 
-#include "mlir/Dialect/LLVMIR/SPIR64OpsDialect.cpp.inc"
+#include "mlir/Dialect/LLVMIR/SPIROpsDialect.cpp.inc"
 
 //===----------------------------------------------------------------------===//
-// SPIR64Dialect initialization, type parsing, and registration.
+// SPIRDialect initialization, type parsing, and registration.
 //===----------------------------------------------------------------------===//
 
-void SPIR64Dialect::initialize() {
+void SPIRDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "mlir/Dialect/LLVMIR/SPIR64Ops.cpp.inc"
+#include "mlir/Dialect/LLVMIR/SPIROps.cpp.inc"
       >();
 
   addAttributes<
 #define GET_ATTRDEF_LIST
-#include "mlir/Dialect/LLVMIR/SPIR64OpsAttributes.cpp.inc"
+#include "mlir/Dialect/LLVMIR/SPIROpsAttributes.cpp.inc"
       >();
 
-  // Support unknown operations because not all SPIR64 operations are registered.
+  // Support unknown operations because not all SPIR operations are registered.
   allowUnknownOperations();
-  declarePromisedInterface<SPIR64TargetAttr, gpu::TargetAttrInterface>();
+  declarePromisedInterface<SPIRTargetAttr, gpu::TargetAttrInterface>();
 }
 
-LogicalResult SPIR64Dialect::verifyOperationAttribute(Operation *op,
+LogicalResult SPIRDialect::verifyOperationAttribute(Operation *op,
                                                      NamedAttribute attr) {
   return success();
 }
 
 //===----------------------------------------------------------------------===//
-// SPIR64 target attribute.
+// SPIR target attribute.
 //===----------------------------------------------------------------------===//
-LogicalResult SPIR64TargetAttr::verify(
+LogicalResult SPIRTargetAttr::verify(
     function_ref<InFlightDiagnostic()> emitError, int optLevel,
     StringRef triple, StringRef chip, StringRef features, DictionaryAttr flags,
     ArrayAttr files, std::optional<spirv::VerCapExtAttr> vce_triple) {
@@ -89,7 +89,7 @@ LogicalResult SPIR64TargetAttr::verify(
 }
 
 #define GET_OP_CLASSES
-#include "mlir/Dialect/LLVMIR/SPIR64Ops.cpp.inc"
+#include "mlir/Dialect/LLVMIR/SPIROps.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES
-#include "mlir/Dialect/LLVMIR/SPIR64OpsAttributes.cpp.inc"
+#include "mlir/Dialect/LLVMIR/SPIROpsAttributes.cpp.inc"

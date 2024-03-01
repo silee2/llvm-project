@@ -1,4 +1,4 @@
-//===- Target.cpp - MLIR LLVM SPIR64 target compilation ----------*- C++ -*-===//
+//===- Target.cpp - MLIR LLVM SPIR target compilation ----------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,19 +6,19 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This files defines SPIR64 target related functions including registration
+// This files defines SPIR target related functions including registration
 // calls for the `#spir.target` compilation attribute.
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Target/LLVM/SPIR64/Target.h"
+#include "mlir/Target/LLVM/SPIR/Target.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/LLVMIR/SPIR64Dialect.h"
-#include "mlir/Target/LLVM/SPIR64/Utils.h"
+#include "mlir/Dialect/LLVMIR/SPIRDialect.h"
+#include "mlir/Target/LLVM/SPIR/Utils.h"
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
-#include "mlir/Target/LLVMIR/Dialect/SPIR64/SPIR64ToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/SPIR/SPIRToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
 #include "llvm/Support/TargetSelect.h"
@@ -36,12 +36,12 @@
 #include <string>
 
 using namespace mlir;
-using namespace mlir::spir64;
+using namespace mlir::spir;
 
 namespace {
 // Implementation of the `TargetAttrInterface` model.
-class SPIR64TargetAttrImpl
-    : public gpu::TargetAttrInterface::FallbackModel<SPIR64TargetAttrImpl> {
+class SPIRTargetAttrImpl
+    : public gpu::TargetAttrInterface::FallbackModel<SPIRTargetAttrImpl> {
 public:
   std::optional<SmallVector<char, 0>>
   serializeToObject(Attribute attribute, Operation *module,
@@ -53,23 +53,23 @@ public:
 };
 } // namespace
 
-// Register the SPIR64 dialect, the SPIR64 translation and the target interface.
-void mlir::spir64::registerSPIR64TargetInterfaceExternalModels(
+// Register the SPIR dialect, the SPIR translation and the target interface.
+void mlir::spir::registerSPIRTargetInterfaceExternalModels(
     DialectRegistry &registry) {
-  registry.addExtension(+[](MLIRContext *ctx, spir64::SPIR64Dialect *dialect) {
-    SPIR64TargetAttr::attachInterface<SPIR64TargetAttrImpl>(*ctx);
+  registry.addExtension(+[](MLIRContext *ctx, spir::SPIRDialect *dialect) {
+    SPIRTargetAttr::attachInterface<SPIRTargetAttrImpl>(*ctx);
   });
 }
 
-void mlir::spir64::registerSPIR64TargetInterfaceExternalModels(
+void mlir::spir::registerSPIRTargetInterfaceExternalModels(
     MLIRContext &context) {
   DialectRegistry registry;
-  registerSPIR64TargetInterfaceExternalModels(registry);
+  registerSPIRTargetInterfaceExternalModels(registry);
   context.appendDialectRegistry(registry);
 }
 
 SerializeGPUModuleBase::SerializeGPUModuleBase(
-    Operation &module, SPIR64TargetAttr target,
+    Operation &module, SPIRTargetAttr target,
     const gpu::TargetOptions &targetOptions)
     : ModuleToObject(module, target.getTriple(), "", target.getFeatures(),
                      target.getO()),
@@ -95,7 +95,7 @@ void SerializeGPUModuleBase::init() {
   });
 }
 
-SPIR64TargetAttr SerializeGPUModuleBase::getTarget() const { return target; }
+SPIRTargetAttr SerializeGPUModuleBase::getTarget() const { return target; }
 
 ArrayRef<std::string> SerializeGPUModuleBase::getFileList() const {
   return fileList;
@@ -113,7 +113,7 @@ SerializeGPUModuleBase::loadBitcodeFiles(llvm::Module &module) {
 namespace {
 class SPIRVSerializer : public SerializeGPUModuleBase {
 public:
-  SPIRVSerializer(Operation &module, SPIR64TargetAttr target,
+  SPIRVSerializer(Operation &module, SPIRTargetAttr target,
                    const gpu::TargetOptions &targetOptions);
 
   gpu::GPUModuleOp getOperation();
@@ -130,7 +130,7 @@ private:
 };
 } // namespace
 
-SPIRVSerializer::SPIRVSerializer(Operation &module, SPIR64TargetAttr target,
+SPIRVSerializer::SPIRVSerializer(Operation &module, SPIRTargetAttr target,
                                    const gpu::TargetOptions &targetOptions)
     : SerializeGPUModuleBase(module, target, targetOptions),
       targetOptions(targetOptions) {}
@@ -273,7 +273,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   return std::nullopt;
 }
 
-std::optional<SmallVector<char, 0>> SPIR64TargetAttrImpl::serializeToObject(
+std::optional<SmallVector<char, 0>> SPIRTargetAttrImpl::serializeToObject(
     Attribute attribute, Operation *module,
     const gpu::TargetOptions &options) const {
   assert(module && "The module must be non null.");
@@ -283,14 +283,14 @@ std::optional<SmallVector<char, 0>> SPIR64TargetAttrImpl::serializeToObject(
     module->emitError("Module must be a GPU module.");
     return std::nullopt;
   }
-  SPIRVSerializer serializer(*module, cast<SPIR64TargetAttr>(attribute),
+  SPIRVSerializer serializer(*module, cast<SPIRTargetAttr>(attribute),
                               options);
   serializer.init();
   return serializer.run();
 }
 
 Attribute
-SPIR64TargetAttrImpl::createObject(Attribute attribute,
+SPIRTargetAttrImpl::createObject(Attribute attribute,
                                   const SmallVector<char, 0> &object,
                                   const gpu::TargetOptions &options) const {
   gpu::CompilationTarget format = options.getCompilationTarget();

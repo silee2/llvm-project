@@ -108,16 +108,16 @@ add_mlir_dialect_library(MLIRVCIXDialect
   MLIRSideEffectInterfaces
   )
 
-add_mlir_dialect_library(MLIRSPIR64Dialect
-  IR/SPIR64Dialect.cpp
+add_mlir_dialect_library(MLIRSPIRDialect
+  IR/SPIRDialect.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/LLVMIR
 
   DEPENDS
   MLIRGPUCompilationAttrInterfacesIncGen
-  MLIRSPIR64OpsIncGen
-  MLIRSPIR64ConversionsIncGen
+  MLIRSPIROpsIncGen
+  MLIRSPIRConversionsIncGen
   intrinsics_gen
 
   LINK_COMPONENTS

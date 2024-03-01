@@ -1,4 +1,4 @@
-//===- SPIR64Dialect.h - MLIR SPIR64 IR dialect -------------------*- C++ -*-===//
+//===- SPIRDialect.h - MLIR SPIR IR dialect -------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines the SPIR64 dialect in MLIR, including Target attribute
+// This file defines the SPIR dialect in MLIR, including Target attribute
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_LLVMIR_SPIR64DIALECT_H
-#define MLIR_DIALECT_LLVMIR_SPIR64DIALECT_H
+#ifndef MLIR_DIALECT_LLVMIR_SPIRDIALECT_H
+#define MLIR_DIALECT_LLVMIR_SPIRDIALECT_H
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -22,11 +22,11 @@
 
 ///// Ops /////
 #define GET_ATTRDEF_CLASSES
-#include "mlir/Dialect/LLVMIR/SPIR64OpsAttributes.h.inc"
+#include "mlir/Dialect/LLVMIR/SPIROpsAttributes.h.inc"
 
 #define GET_OP_CLASSES
-#include "mlir/Dialect/LLVMIR/SPIR64Ops.h.inc"
+#include "mlir/Dialect/LLVMIR/SPIROps.h.inc"
 
-#include "mlir/Dialect/LLVMIR/SPIR64OpsDialect.h.inc"
+#include "mlir/Dialect/LLVMIR/SPIROpsDialect.h.inc"
 
-#endif /* MLIR_DIALECT_LLVMIR_SPIR64DIALECT_H */
+#endif /* MLIR_DIALECT_LLVMIR_SPIRDIALECT_H */

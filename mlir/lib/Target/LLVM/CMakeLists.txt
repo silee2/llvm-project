@@ -207,8 +207,8 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
   endif()
 endif()
 
-add_mlir_dialect_library(MLIRSPIR64Target
-  SPIR64/Target.cpp
+add_mlir_dialect_library(MLIRSPIRTarget
+  SPIR/Target.cpp
 
   LINK_COMPONENTS
   MCParser
@@ -220,16 +220,16 @@ add_mlir_dialect_library(MLIRSPIR64Target
   MLIRSupport
   MLIRGPUDialect
   MLIRTargetLLVM
-  MLIRSPIR64ToLLVMIRTranslation
+  MLIRSPIRToLLVMIRTranslation
   )
 
 if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
   get_target_property(_src_dir LLVMSPIRVLib SOURCE_DIR)
-  target_include_directories(MLIRSPIR64Target
+  target_include_directories(MLIRSPIRTarget
   PRIVATE
     ${_src_dir}/../../include
   )
-  target_link_libraries(MLIRSPIR64Target
+  target_link_libraries(MLIRSPIRTarget
   PRIVATE
     SPIRV-Tools-static
     LLVMSPIRVLib

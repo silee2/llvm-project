@@ -1,4 +1,4 @@
-//===- SPIR64AttachTarget.cpp - Attach an SPIR64 target
+//===- SPIRAttachTarget.cpp - Attach an SPIR target
 //-----------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the `GpuSPIR64AttachTarget` pass, attaching
+// This file implements the `GpuSPIRAttachTarget` pass, attaching
 // `#nvvm.target` attributes to GPU modules.
 //
 //===----------------------------------------------------------------------===//
@@ -15,39 +15,39 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/LLVMIR/SPIR64Dialect.h"
+#include "mlir/Dialect/LLVMIR/SPIRDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVAttributes.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
 #include "mlir/Dialect/SPIRV/IR/TargetAndABI.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Target/LLVM/SPIR64/Target.h"
+#include "mlir/Target/LLVM/SPIR/Target.h"
 #include "llvm/Support/Regex.h"
 
 namespace mlir {
-#define GEN_PASS_DEF_GPUSPIR64ATTACHTARGET
+#define GEN_PASS_DEF_GPUSPIRATTACHTARGET
 #include "mlir/Dialect/GPU/Transforms/Passes.h.inc"
 } // namespace mlir
 
 using namespace mlir;
-using namespace mlir::spir64;
+using namespace mlir::spir;
 using namespace mlir::spirv;
 
 namespace {
-struct SPIR64AttachTarget
-    : public impl::GpuSPIR64AttachTargetBase<SPIR64AttachTarget> {
+struct SPIRAttachTarget
+    : public impl::GpuSPIRAttachTargetBase<SPIRAttachTarget> {
   using Base::Base;
 
   void runOnOperation() override;
 
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<spir64::SPIR64Dialect>();
+    registry.insert<spir::SPIRDialect>();
     registry.insert<spirv::SPIRVDialect>();
   }
 };
 } // namespace
 
-void SPIR64AttachTarget::runOnOperation() {
+void SPIRAttachTarget::runOnOperation() {
   OpBuilder builder(&getContext());
   ArrayRef<std::string> libs(linkLibs);
   SmallVector<StringRef> filesToLink(libs.begin(), libs.end());
@@ -81,7 +81,7 @@ void SPIR64AttachTarget::runOnOperation() {
   ArrayRef<Extension> exts(extensions);
   VerCapExtAttr vce = VerCapExtAttr::get(version, caps, exts, &getContext());
 
-  auto target = builder.getAttr<SPIR64TargetAttr>(
+  auto target = builder.getAttr<SPIRTargetAttr>(
       optLevel, triple, chip, features,
       flags.empty() ? nullptr : builder.getDictionaryAttr(flags),
       filesToLink.empty() ? nullptr : builder.getStrArrayAttr(filesToLink),

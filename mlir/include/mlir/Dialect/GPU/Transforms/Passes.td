@@ -250,21 +250,21 @@ def GpuSPIRVAttachTarget: Pass<"spirv-attach-target", ""> {
   ];
 }
 
-def GpuSPIR64AttachTarget: Pass<"spir64-attach-target", ""> {
-  let summary = "Attaches an SPIR64 target attribute to a GPU Module.";
+def GpuSPIRAttachTarget: Pass<"spir-attach-target", ""> {
+  let summary = "Attaches an SPIR target attribute to a GPU Module.";
   let description = [{
     This pass searches for all GPU Modules in the immediate regions and attaches
-    an SPIR64 target if the module matches the name specified by the `module` argument.
+    an SPIR target if the module matches the name specified by the `module` argument.
 
     Example:
     ```
     // File: in.mlir:
-    gpu.module @spir64_module_1 {...}
-    gpu.module @spir64_module_2 {...}
+    gpu.module @spir_module_1 {...}
+    gpu.module @spir_module_2 {...}
     gpu.module @rocdl_module_1 {...}
-    // mlir-opt --spir64-attach-target="module=spir64.* chip=XeHPC" in.mlir
-    gpu.module @spir64_module_1 [#spir64.target<chip = "XeHPC">] {...}
-    gpu.module @spir64_module_2 [#spir64.target<chip = "XeHPC">] {...}
+    // mlir-opt --spir-attach-target="module=spir.* chip=XeHPC" in.mlir
+    gpu.module @spir_module_1 [#spir.target<chip = "XeHPC">] {...}
+    gpu.module @spir_module_2 [#spir.target<chip = "XeHPC">] {...}
     gpu.module @rocdl_module_1 {...}
     ```
   }];

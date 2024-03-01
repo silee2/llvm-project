@@ -93,7 +93,7 @@
 #include "mlir/Interfaces/CastInterfaces.h"
 #include "mlir/Target/LLVM/NVVM/Target.h"
 #include "mlir/Target/LLVM/ROCDL/Target.h"
-#include "mlir/Target/LLVM/SPIR64/Target.h"
+#include "mlir/Target/LLVM/SPIR/Target.h"
 #include "mlir/Target/SPIRV/Target.h"
 
 namespace mlir {
@@ -182,7 +182,7 @@ inline void registerAllDialects(DialectRegistry &registry) {
   NVVM::registerNVVMTargetInterfaceExternalModels(registry);
   ROCDL::registerROCDLTargetInterfaceExternalModels(registry);
   spirv::registerSPIRVTargetInterfaceExternalModels(registry);
-  spir64::registerSPIR64TargetInterfaceExternalModels(registry);
+  spir::registerSPIRTargetInterfaceExternalModels(registry);
 }
 
 /// Append all the MLIR dialects to the registry contained in the given context.

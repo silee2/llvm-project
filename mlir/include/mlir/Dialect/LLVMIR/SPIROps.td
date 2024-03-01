@@ -1,4 +1,4 @@
-//===-- SPIR64Ops.td - SPIR64 IR dialect op definition file --*- tablegen -*-===//
+//===-- SPIROps.td - SPIR IR dialect op definition file --*- tablegen -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This is the SPIR64 IR operation definition file.
+// This is the SPIR IR operation definition file.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_LLVMIR_SPIR64OPS_TD
-#define MLIR_DIALECT_LLVMIR_SPIR64OPS_TD
+#ifndef MLIR_DIALECT_LLVMIR_SPIROPS_TD
+#define MLIR_DIALECT_LLVMIR_SPIROPS_TD
 
 include "mlir/Dialect/GPU/IR/CompilationAttrInterfaces.td"
 include "mlir/Dialect/LLVMIR/LLVMOpBase.td"
@@ -19,12 +19,12 @@ include "mlir/Dialect/SPIRV/IR/SPIRVBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
-// SPIR64 dialect definitions
+// SPIR dialect definitions
 //===----------------------------------------------------------------------===//
 
-def SPIR64_Dialect : Dialect {
-  let name = "spir64";
-  let cppNamespace = "::mlir::spir64";
+def SPIR_Dialect : Dialect {
+  let name = "spir";
+  let cppNamespace = "::mlir::spir";
   let dependentDialects = ["LLVM::LLVMDialect"];
   let hasOperationAttrVerify = 1;
 
@@ -35,45 +35,45 @@ def SPIR64_Dialect : Dialect {
 }
 
 //===----------------------------------------------------------------------===//
-// SPIR64 attribute definitions
+// SPIR attribute definitions
 //===----------------------------------------------------------------------===//
 
-class SPIR64_Attr<string attrName, string attrMnemonic, list<Trait> traits = []>
-    : AttrDef<SPIR64_Dialect, attrName, traits> {
+class SPIR_Attr<string attrName, string attrMnemonic, list<Trait> traits = []>
+    : AttrDef<SPIR_Dialect, attrName, traits> {
   let mnemonic = attrMnemonic;
 }
 
 
 //===----------------------------------------------------------------------===//
-// SPIR64 op definitions
+// SPIR op definitions
 //===----------------------------------------------------------------------===//
 
-class SPIR64_Op<string mnemonic, list<Trait> traits = []> :
-  LLVM_OpBase<SPIR64_Dialect, mnemonic, traits> {
+class SPIR_Op<string mnemonic, list<Trait> traits = []> :
+  LLVM_OpBase<SPIR_Dialect, mnemonic, traits> {
 }
 
 //===----------------------------------------------------------------------===//
-// SPIR64 target attribute.
+// SPIR target attribute.
 //===----------------------------------------------------------------------===//
 
-def SPIR64_TargettAttr :
-    SPIR64_Attr<"SPIR64Target", "target"> {
+def SPIR_TargettAttr :
+    SPIR_Attr<"SPIRTarget", "target"> {
   let description = [{
-    SPIR64 target attribute for controlling compilation of SPIR-V targets. All
+    SPIR target attribute for controlling compilation of SPIR-V targets. All
     parameters decay into default values if not present.
 
     Examples:
 
     1. Target with default values.
     ```
-      gpu.module @mymodule [#spir64.target] attributes {...} {
+      gpu.module @mymodule [#spir.target] attributes {...} {
         ...
       }
     ```
 
     2. Target with `XeHPC` chip.
     ```
-      gpu.module @mymodule [#spir64.target<chip = "XeHPC">] {
+      gpu.module @mymodule [#spir.target<chip = "XeHPC">] {
         ...
       }
     ```
@@ -116,4 +116,4 @@ def SPIR64_TargettAttr :
   }];
 }
 
-#endif // MLIR_DIALECT_LLVMIR_SPIR64OPS_TD
+#endif // MLIR_DIALECT_LLVMIR_SPIROPS_TD
