@@ -25,7 +25,7 @@ cmake -G Ninja -B build -S llvm \
 ```
 To use LLVM's own SPIR-V backend, change MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR option to OFF
 ```
-    -DMLIR_ENABLE_SPIRV_LLVM_TRANSLATOR=OFF
+    -DMLIR_ENABLE_SPIRV_LLVM_TRANSLATOR=0
 ```
 
 
