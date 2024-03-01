@@ -68,4 +68,18 @@ Lowering pipeline from GPU dialect:
     --entry-point-result=void
 ```
 
+## Implementaion Files Interest
+### LLVM to SPIR-V translation (serializer)
+```
+mlir/lib/Target/LLVM/SPIR/Target.cpp
+```
+### GPUToSPIR Pass (GPU dialect to LLVM dialect conversion)
+```
+mlir/lib/Conversion/GPUToSPIR/GPUToSPIRPass.cpp
+```
 
+## TODO:
+### GPUToSPIR
+- Set gpu module target data_layout and target triple
+### Translation
+- Add request extension SPV_INTEL_vector_compute
