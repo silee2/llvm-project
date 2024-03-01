@@ -1,5 +1,5 @@
-add_mlir_conversion_library(MLIRGPUToVC
-  GPUToVCPass.cpp
+add_mlir_conversion_library(MLIRGPUToSPIR
+    GPUToSPIRPass.cpp
 
   DEPENDS
   MLIRConversionPassIncGen

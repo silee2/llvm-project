@@ -1,4 +1,4 @@
-//===- GPUToVCPass.cpp - MLIR GPU to VC lowering passes -------------------===//
+//===- GPUToSPIRPass.cpp - MLIR GPU to VC lowering passes -------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -18,7 +18,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "mlir/IR/DialectRegistry.h"
 
-#include "mlir/Conversion/GPUToVC/GPUToVCPass.h"
+#include "mlir/Conversion/GPUToSPIR/GPUToSPIRPass.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
@@ -50,7 +50,7 @@
 #include <iostream>
 
 namespace mlir {
-#define GEN_PASS_DEF_CONVERTGPUTOVC
+#define GEN_PASS_DEF_CONVERTGPUTOSPIR
 #include "mlir/Conversion/Passes.h.inc"
 } // namespace mlir
 
@@ -188,8 +188,8 @@ _Z29__spirv_BuiltInGlobalLinearIdv
 ///
 /// This pass only handles device code and is not meant to be run on GPU host
 /// code.
-struct GPUToVCPass
-    : public impl::ConvertGPUToVCBase<GPUToVCPass> {
+struct GPUToSPIRPass
+    : public impl::ConvertGPUToSPIRBase<GPUToSPIRPass> {
   using Base::Base;
 
   void runOnOperation() override {

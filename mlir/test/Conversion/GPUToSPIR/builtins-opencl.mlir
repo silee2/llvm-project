@@ -1,4 +1,4 @@
-// RUN: mlir-opt -split-input-file -convert-gpu-to-vc %s -o - | FileCheck %s
+// RUN: mlir-opt -split-input-file -convert-gpu-to-spir %s -o - | FileCheck %s
 
 module attributes {
   gpu.container_module

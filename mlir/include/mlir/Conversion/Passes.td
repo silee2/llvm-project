@@ -576,10 +576,10 @@ def ConvertXeGPUToVC : Pass<"convert-xegpu-to-vc"> {
 }
 
 //===----------------------------------------------------------------------===//
-// GPUToVC
+// GPUToSPIR
 //===----------------------------------------------------------------------===//
 
-def ConvertGPUToVC : Pass<"convert-gpu-to-vc", "gpu::GPUModuleOp"> {
+def ConvertGPUToSPIR : Pass<"convert-gpu-to-spir", "gpu::GPUModuleOp"> {
   let summary = "Generate vc-intrinsics operations for gpu operations";
   let options = [
     Option<"useBarePtrCallConv", "use-bare-ptr-memref-call-conv", "bool",
