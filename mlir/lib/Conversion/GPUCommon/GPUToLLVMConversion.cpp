@@ -825,10 +825,7 @@ LogicalResult ConvertAllocOpToGpuRuntimeCallPattern::matchAndRewrite(
 
   bool isShared = allocOp.getHostShared();
 
-  if (isShared && allocOp.getAsyncToken())
-    return rewriter.notifyMatchFailure(
-        allocOp, "Host Shared allocation cannot be done async");
-  if (!isShared && failed(isAsyncWithOneDependency(rewriter, allocOp)))
+  if (failed(isAsyncWithOneDependency(rewriter, allocOp)))
     return failure();
 
   // Get shape of the memref as values: static sizes are constant
