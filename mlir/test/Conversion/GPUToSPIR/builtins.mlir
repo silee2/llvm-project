@@ -11,8 +11,13 @@ module attributes {
   }
 
   gpu.module @kernels {
+    // CHECK: llvm.func spir_kernelcc @empty_kernel
     gpu.func @empty_kernel() kernel
       attributes {} {
+      %0 = gpu.thread_id y
+      %1 = gpu.block_id x
+      %2 = gpu.grid_dim z
+      %3 = gpu.block_dim y
       gpu.return
     }
   }
