@@ -80,6 +80,5 @@ mlir/lib/Conversion/GPUToSPIR/GPUToSPIRPass.cpp
 
 ## TODO:
 ### GPUToSPIR
-- Set gpu module target data_layout and target triple
 ### Translation
 - Add request extension SPV_INTEL_vector_compute
