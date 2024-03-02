@@ -566,7 +566,7 @@ def ConvertGpuOpsToROCDLOps : Pass<"convert-gpu-to-rocdl", "gpu::GPUModuleOp"> {
 //===----------------------------------------------------------------------===//
 
 def ConvertGPUToSPIR : Pass<"convert-gpu-to-spir", "gpu::GPUModuleOp"> {
-  let summary = "Generate vc-intrinsics operations for gpu operations";
+  let summary = "Convert GPU dialect to LLVM dialect";
   let options = [
     Option<"useBarePtrCallConv", "use-bare-ptr-memref-call-conv", "bool",
            /*default=*/"true",
