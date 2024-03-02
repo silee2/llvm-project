@@ -88,7 +88,6 @@
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/Transforms/SubsetOpInterfaceImpl.h"
 #include "mlir/Dialect/X86Vector/X86VectorDialect.h"
-#include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/Interfaces/CastInterfaces.h"
 #include "mlir/Target/LLVM/NVVM/Target.h"
@@ -141,8 +140,7 @@ inline void registerAllDialects(DialectRegistry &registry) {
                   transform::TransformDialect,
                   ub::UBDialect,
                   vector::VectorDialect,
-                  x86vector::X86VectorDialect,
-                  xegpu::XeGPUDialect>();
+                  x86vector::X86VectorDialect>();
   // clang-format on
 
   // Register all external models.

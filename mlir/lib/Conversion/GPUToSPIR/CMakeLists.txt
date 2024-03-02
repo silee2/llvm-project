@@ -4,9 +4,6 @@ add_mlir_conversion_library(MLIRGPUToSPIR
   DEPENDS
   MLIRConversionPassIncGen
 
-  LINK_COMPONENTS
-  GenXIntrinsics
-
   LINK_LIBS PUBLIC
   MLIRArithToLLVM
   MLIRFuncToLLVM

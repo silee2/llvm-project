@@ -46,8 +46,6 @@
 #include "../GPUCommon/OpToFuncCallLowering.h"
 #include <optional>
 
-#include "llvm/GenXIntrinsics/GenXIntrinsics.h"
-
 #include <iostream>
 
 namespace mlir {
