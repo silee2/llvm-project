@@ -178,7 +178,7 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
       FetchContent_Declare(
         spirv-tools
         GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Tools.git
-        GIT_TAG main  # This will pull the latest changes from the main branch.
+        GIT_TAG vulkan-sdk-1.3.275.0
       )
       FetchContent_MakeAvailable(spirv-tools)
       if (HAVE_ERROR)
