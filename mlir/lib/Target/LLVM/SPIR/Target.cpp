@@ -154,9 +154,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   // Return LLVM IR if the compilation target is offload.
 #define DEBUG_TYPE "serialize-spir-to-llvm"
   LLVM_DEBUG({
-    llvm::dbgs() << "LLVM IR for module: " << getOperation().getNameAttr()
-                 << "\n"
-                 << llvmModule << "\n";
+    llvm::dbgs() << llvmModule << "\n";
   });
 #undef DEBUG_TYPE
   bool needVectorCompute = false;
@@ -223,8 +221,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     }
 #define DEBUG_TYPE "serialize-spir-to-isa"
     LLVM_DEBUG({
-      llvm::dbgs() << "ISA for module: " << getOperation().getNameAttr() << "\n"
-                   << *serializedISA << "\n";
+      llvm::dbgs() << *serializedISA << "\n";
     });
 #undef DEBUG_TYPE
     // Return ISA assembly code if the compilation _target is assembly.
@@ -252,10 +249,9 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       getOperation().emitError() << "Failed translating the module to ISA.";
       return std::nullopt;
     }
-#define DEBUG_TYPE "serialize-spir-to-isa-khronos"
+#define DEBUG_TYPE "serialize-spir-to-isa"
     LLVM_DEBUG({
-      llvm::dbgs() << "ISA for module: " << getOperation().getNameAttr() << "\n"
-                   << serializedISA << "\n";
+      llvm::dbgs() << serializedISA << "\n";
     });
 #undef DEBUG_TYPE
     return SmallVector<char, 0>(serializedISA.begin(), serializedISA.end());
@@ -273,9 +269,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     }
 #define DEBUG_TYPE "serialize-spir-to-binary"
     LLVM_DEBUG({
-      llvm::dbgs() << "ISA binary for module: " << getOperation().getNameAttr()
-                   << "\n"
-                   << *serializedISABinary << "\n";
+      llvm::dbgs() << *serializedISABinary << "\n";
     });
 #undef DEBUG_TYPE
     // Return ISA assembly code if the compilation target is assembly.
@@ -298,11 +292,9 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       return std::nullopt;
     }
     std::string serializedISABinary = outStream.str();
-#define DEBUG_TYPE "serialize-spir-to-binary-khronos"
+#define DEBUG_TYPE "serialize-spir-to-binary"
     LLVM_DEBUG({
-      llvm::dbgs() << "ISA binary for module: " << getOperation().getNameAttr()
-                   << "\n"
-                   << serializedISABinary << "\n";
+      llvm::dbgs() << serializedISABinary << "\n";
     });
 #undef DEBUG_TYPE
     return SmallVector<char, 0>(serializedISABinary.begin(),
