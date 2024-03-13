@@ -15,12 +15,17 @@
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/SPIRDialect.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVEnums.h"
 #include "mlir/Target/LLVM/SPIR/Utils.h"
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/SPIR/SPIRToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
+#include "llvm/IR/CallingConv.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/Support/TargetSelect.h"
 
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
@@ -154,6 +159,43 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
                  << llvmModule << "\n";
   });
 #undef DEBUG_TYPE
+  bool needVectorCompute = false;
+  if (getTarget().getVce()) {
+    for (const spirv::Extension &exts : getTarget().getVce()->getExtensions()) {
+      if (exts == spirv::Extension::SPV_INTEL_vector_compute) {
+        needVectorCompute = true;
+      }
+    }
+  }
+  if (needVectorCompute) {
+    auto &fList = llvmModule.getFunctionList();
+    for (auto &fRef : fList) {
+      // For each kernel
+      if (fRef.getCallingConv() == llvm::CallingConv::SPIR_KERNEL) {
+        // Append named metadata at end of module
+        // Set    (A) !spirv.ExecutionMode with subgroupsize (35) = 1
+        //     or (B) function decorator !intel_reqd_sub_group_size !5
+        // Both works for SPIR-V backend and translator
+        // Set    (C) !spirv.Decorations VectorComputeFunctionINTEL (5626)
+        //     or (D) function attribute "VCFunction"
+        // SPIR-V backend does not have support and needs to be added
+        // function attribute will be easier to add
+        // Using (A) and (D) for now
+        llvm::NamedMDNode *node =
+            llvmModule.getOrInsertNamedMetadata("spirv.ExecutionMode");
+        llvm::Metadata *llvmMetadata[] = {
+            llvm::ValueAsMetadata::get(&fRef),
+            llvm::ValueAsMetadata::get(llvm::ConstantInt::get(
+                llvm::Type::getInt32Ty(llvmModule.getContext()), 35)),
+            llvm::ValueAsMetadata::get(llvm::ConstantInt::get(
+                llvm::Type::getInt32Ty(llvmModule.getContext()), 1))};
+        llvm::MDNode *llvmMetadataNode =
+            llvm::MDNode::get(llvmModule.getContext(), llvmMetadata);
+        node->addOperand(llvmMetadataNode);
+        fRef.addFnAttr("VCFunction");
+      }
+    }
+  }
   if (targetOptions.getCompilationTarget() == gpu::CompilationTarget::Offload)
     return SerializeGPUModuleBase::moduleToObject(llvmModule);
 
@@ -185,7 +227,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
                    << *serializedISA << "\n";
     });
 #undef DEBUG_TYPE
-    // Return ISA assembly code if the compilation target is assembly.
+    // Return ISA assembly code if the compilation _target is assembly.
     return SmallVector<char, 0>(serializedISA->begin(), serializedISA->end());
 #else
     spvtools::SpirvTools spvTool(SPV_ENV_OPENCL_2_0);
