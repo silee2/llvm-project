@@ -169,7 +169,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       // For each kernel or intrinsic function
       if ((fRef.getCallingConv() == llvm::CallingConv::SPIR_KERNEL) ||
           ((fRef.getCallingConv() == llvm::CallingConv::SPIR_FUNC) &&
-           fRef.getName().starts_with("llvm_"))) {
+           fRef.getName().starts_with("llvm.genx."))) {
         // Append named metadata at end of module
         // Set    (A) !spirv.ExecutionMode with subgroupsize (35) = 1
         //     or (B) function decorator !intel_reqd_sub_group_size !5
