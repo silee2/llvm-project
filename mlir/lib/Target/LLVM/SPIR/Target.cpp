@@ -153,9 +153,7 @@ std::optional<SmallVector<char, 0>>
 SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   // Return LLVM IR if the compilation target is offload.
 #define DEBUG_TYPE "serialize-spir-to-llvm"
-  LLVM_DEBUG({
-    llvm::dbgs() << llvmModule << "\n";
-  });
+  LLVM_DEBUG({ llvm::dbgs() << llvmModule << "\n"; });
 #undef DEBUG_TYPE
   bool needVectorCompute = false;
   if (getTarget().getVce()) {
@@ -168,8 +166,10 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   if (needVectorCompute) {
     auto &fList = llvmModule.getFunctionList();
     for (auto &fRef : fList) {
-      // For each kernel
-      if (fRef.getCallingConv() == llvm::CallingConv::SPIR_KERNEL) {
+      // For each kernel or intrinsic function
+      if ((fRef.getCallingConv() == llvm::CallingConv::SPIR_KERNEL) ||
+          ((fRef.getCallingConv() == llvm::CallingConv::SPIR_FUNC) &&
+           fRef.getName().starts_with("llvm_"))) {
         // Append named metadata at end of module
         // Set    (A) !spirv.ExecutionMode with subgroupsize (35) = 1
         //     or (B) function decorator !intel_reqd_sub_group_size !5
@@ -220,9 +220,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       return std::nullopt;
     }
 #define DEBUG_TYPE "serialize-spir-to-isa"
-    LLVM_DEBUG({
-      llvm::dbgs() << *serializedISA << "\n";
-    });
+    LLVM_DEBUG({ llvm::dbgs() << *serializedISA << "\n"; });
 #undef DEBUG_TYPE
     // Return ISA assembly code if the compilation _target is assembly.
     return SmallVector<char, 0>(serializedISA->begin(), serializedISA->end());
@@ -250,9 +248,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       return std::nullopt;
     }
 #define DEBUG_TYPE "serialize-spir-to-isa"
-    LLVM_DEBUG({
-      llvm::dbgs() << serializedISA << "\n";
-    });
+    LLVM_DEBUG({ llvm::dbgs() << serializedISA << "\n"; });
 #undef DEBUG_TYPE
     return SmallVector<char, 0>(serializedISA.begin(), serializedISA.end());
 #endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
@@ -268,9 +264,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
       return std::nullopt;
     }
 #define DEBUG_TYPE "serialize-spir-to-binary"
-    LLVM_DEBUG({
-      llvm::dbgs() << *serializedISABinary << "\n";
-    });
+    LLVM_DEBUG({ llvm::dbgs() << *serializedISABinary << "\n"; });
 #undef DEBUG_TYPE
     // Return ISA assembly code if the compilation target is assembly.
     return SmallVector<char, 0>(serializedISABinary->begin(),
@@ -293,9 +287,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     }
     std::string serializedISABinary = outStream.str();
 #define DEBUG_TYPE "serialize-spir-to-binary"
-    LLVM_DEBUG({
-      llvm::dbgs() << serializedISABinary << "\n";
-    });
+    LLVM_DEBUG({ llvm::dbgs() << serializedISABinary << "\n"; });
 #undef DEBUG_TYPE
     return SmallVector<char, 0>(serializedISABinary.begin(),
                                 serializedISABinary.end());
