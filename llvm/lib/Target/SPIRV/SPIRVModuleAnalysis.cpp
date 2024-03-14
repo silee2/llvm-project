@@ -1044,7 +1044,11 @@ static void collectReqs(const Module &M, SPIRV::ModuleAnalysisInfo &MAI,
       MAI.Reqs.getAndAddRequirements(
           SPIRV::OperandCategory::ExecutionModeOperand,
           SPIRV::ExecutionMode::VecTypeHint, ST);
-
+    if (F.getFnAttribute("VCFunction").isValid() &&
+        ST.canUseExtension(SPIRV::Extension::SPV_INTEL_vector_compute)) {
+      MAI.Reqs.addCapability(SPIRV::Capability::VectorAnyINTEL);
+      MAI.Reqs.addCapability(SPIRV::Capability::VectorComputeINTEL);
+    }
     if (F.hasOptNone() &&
         ST.canUseExtension(SPIRV::Extension::SPV_INTEL_optnone)) {
       // Output OpCapability OptNoneINTEL.

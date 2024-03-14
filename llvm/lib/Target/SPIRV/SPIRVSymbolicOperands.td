@@ -1188,6 +1188,7 @@ defm RestrictPointerEXT : DecorationOperand<5355, 0, 0, [], [PhysicalStorageBuff
 defm AliasedPointerEXT : DecorationOperand<5356, 0, 0, [], [PhysicalStorageBufferAddressesEXT]>;
 defm ReferencedIndirectlyINTEL : DecorationOperand<5602, 0, 0, [], [IndirectReferencesINTEL]>;
 defm ArgumentAttributeINTEL : DecorationOperand<6409, 0, 0, [], [FunctionPointersINTEL]>;
+defm VectorComputeFunctionINTEL : DecorationOperand<5626, 0, 0, [SPV_INTEL_vector_compute], [VectorAnyINTEL, VectorComputeINTEL]>;
 
 //===----------------------------------------------------------------------===//
 // Multiclass used to define BuiltIn enum values and at the same time

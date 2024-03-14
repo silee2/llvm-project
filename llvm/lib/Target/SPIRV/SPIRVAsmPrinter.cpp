@@ -11,7 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/SPIRVBaseInfo.h"
 #include "MCTargetDesc/SPIRVInstPrinter.h"
+#include "MCTargetDesc/SPIRVMCTargetDesc.h"
 #include "SPIRV.h"
 #include "SPIRVInstrInfo.h"
 #include "SPIRVMCInstLower.h"
@@ -64,6 +66,7 @@ public:
   void outputOpMemoryModel();
   void outputOpFunctionEnd();
   void outputExtFuncDecls();
+  void outputDecorationFromVCFunctionAttribute(Register Reg);
   void outputExecutionModeFromMDNode(Register Reg, MDNode *Node,
                                      SPIRV::ExecutionMode::ExecutionMode EM);
   void outputExecutionModeFromNumthreadsAttribute(
@@ -405,6 +408,15 @@ static void addOpsFromMDNode(MDNode *MDN, MCInst &Inst,
   }
 }
 
+void SPIRVAsmPrinter::outputDecorationFromVCFunctionAttribute(Register Reg) {
+  MCInst Inst;
+  Inst.setOpcode(SPIRV::OpDecorate);
+  Inst.addOperand(MCOperand::createReg(Reg));
+  Inst.addOperand(MCOperand::createImm(
+      static_cast<unsigned>(SPIRV::Decoration::VectorComputeFunctionINTEL)));
+  outputMCInst(Inst);
+}
+
 void SPIRVAsmPrinter::outputExecutionModeFromMDNode(
     Register Reg, MDNode *Node, SPIRV::ExecutionMode::ExecutionMode EM) {
   MCInst Inst;
@@ -476,6 +488,8 @@ void SPIRVAsmPrinter::outputExecutionMode(const Module &M) {
       Inst.addOperand(MCOperand::createImm(TypeCode));
       outputMCInst(Inst);
     }
+    if (Attribute Attr = F.getFnAttribute("VCFunction"); Attr.isValid())
+      outputDecorationFromVCFunctionAttribute(FReg);
     if (ST->isOpenCLEnv() && !M.getNamedMetadata("spirv.ExecutionMode") &&
         !M.getNamedMetadata("opencl.enable.FP_CONTRACT")) {
       MCInst Inst;
