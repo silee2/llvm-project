@@ -26,6 +26,7 @@
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
 
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
@@ -166,19 +167,18 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   if (needVectorCompute) {
     auto &fList = llvmModule.getFunctionList();
     for (auto &fRef : fList) {
-      // For each kernel or intrinsic function
-      if ((fRef.getCallingConv() == llvm::CallingConv::SPIR_KERNEL) ||
-          ((fRef.getCallingConv() == llvm::CallingConv::SPIR_FUNC) &&
-           fRef.getName().starts_with("llvm.genx."))) {
-        // Append named metadata at end of module
-        // Set    (A) !spirv.ExecutionMode with subgroupsize (35) = 1
-        //     or (B) function decorator !intel_reqd_sub_group_size !5
-        // Both works for SPIR-V backend and translator
-        // Set    (C) !spirv.Decorations VectorComputeFunctionINTEL (5626)
-        //     or (D) function attribute "VCFunction"
-        // SPIR-V backend does not have support and needs to be added
-        // function attribute will be easier to add
-        // Using (A) and (D) for now
+      // For each SPIR_KERNEL and non-builtin SPIR_FUNC
+      // Append named metadata at end of module
+      // Set    (A) !spirv.ExecutionMode with subgroupsize (35) = 1
+      //     or (B) function decorator !intel_reqd_sub_group_size !5
+      // Both works for SPIR-V backend and translator
+      // Set    (C) !spirv.Decorations VectorComputeFunctionINTEL (5626)
+      //     or (D) function attribute "VCFunction"
+      // SPIR-V backend does not have support and needs to be added
+      // function attribute will be easier to add
+      // Using (A) and (D) for now
+      // SubgroupSize is only set for SPIR_KERNEL
+      if (fRef.getCallingConv() == llvm::CallingConv::SPIR_KERNEL) {
         llvm::NamedMDNode *node =
             llvmModule.getOrInsertNamedMetadata("spirv.ExecutionMode");
         llvm::Metadata *llvmMetadata[] = {
@@ -191,6 +191,9 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
             llvm::MDNode::get(llvmModule.getContext(), llvmMetadata);
         node->addOperand(llvmMetadataNode);
         fRef.addFnAttr("VCFunction");
+      } else if ((fRef.getCallingConv() == llvm::CallingConv::SPIR_FUNC) &&
+                 fRef.getName().starts_with("llvm.genx.")) {
+        fRef.addFnAttr("VCFunction");
       }
     }
   }
@@ -199,8 +202,14 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
 
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
     MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
-  std::optional<llvm::TargetMachine *> targetMachine =
-      getOrCreateTargetMachine();
+  if (needVectorCompute) {
+    const char *argv[] = {"llc", "--spirv-extensions=SPV_INTEL_vector_compute"};
+    if (!llvm::cl::ParseCommandLineOptions(2, argv, "SPIR-V backend")) {
+      getOperation().emitError() << "Could not set SPIR-V backend options\n";
+      return std::nullopt;
+    }
+  }
+  std::optional<llvm::TargetMachine *> targetMachine = createTargetMachine();
   if (!targetMachine) {
     getOperation().emitError() << "Target Machine unavailable for triple "
                                << triple << ", can't compile with LLVM\n";

@@ -43,10 +43,7 @@ ModuleToObject::~ModuleToObject() = default;
 
 Operation &ModuleToObject::getOperation() { return module; }
 
-std::optional<llvm::TargetMachine *>
-ModuleToObject::getOrCreateTargetMachine() {
-  if (targetMachine)
-    return targetMachine.get();
+std::optional<llvm::TargetMachine *> ModuleToObject::createTargetMachine() {
   // Load the target.
   std::string error;
   const llvm::Target *target =
@@ -63,6 +60,13 @@ ModuleToObject::getOrCreateTargetMachine() {
   if (!targetMachine)
     return std::nullopt;
   return targetMachine.get();
+}
+
+std::optional<llvm::TargetMachine *>
+ModuleToObject::getOrCreateTargetMachine() {
+  if (targetMachine)
+    return targetMachine.get();
+  return createTargetMachine();
 }
 
 std::unique_ptr<llvm::Module>
