@@ -462,6 +462,11 @@ void SPIRVAsmPrinter::outputExecutionMode(const Module &M) {
   }
   for (auto FI = M.begin(), E = M.end(); FI != E; ++FI) {
     const Function &F = *FI;
+    if (Attribute Attr = F.getFnAttribute("VCFunction"); Attr.isValid()) {
+      Register FReg = MAI->getFuncReg(&F);
+      assert(FReg.isValid());
+      outputDecorationFromVCFunctionAttribute(FReg);
+    }
     if (F.isDeclaration())
       continue;
     Register FReg = MAI->getFuncReg(&F);
@@ -488,8 +493,6 @@ void SPIRVAsmPrinter::outputExecutionMode(const Module &M) {
       Inst.addOperand(MCOperand::createImm(TypeCode));
       outputMCInst(Inst);
     }
-    if (Attribute Attr = F.getFnAttribute("VCFunction"); Attr.isValid())
-      outputDecorationFromVCFunctionAttribute(FReg);
     if (ST->isOpenCLEnv() && !M.getNamedMetadata("spirv.ExecutionMode") &&
         !M.getNamedMetadata("opencl.enable.FP_CONTRACT")) {
       MCInst Inst;
