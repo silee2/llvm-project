@@ -166,7 +166,7 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
       FetchContent_Declare(
         spirv-headers
         GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
-        GIT_TAG main  # This will pull the latest changes from the main branch.
+        GIT_TAG vulkan-sdk-1.3.275.0
       )
       FetchContent_MakeAvailable(spirv-headers)
     endif()
@@ -194,7 +194,7 @@ if (MLIR_ENABLE_SPIRV_CONVERSIONS)
       FetchContent_Declare(
         spirv-llvm-translator
         GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
-        GIT_TAG main  # This will pull the latest changes from the main branch.
+        GIT_TAG 2cd8b788edc53ed144eb8644781b37a741071b09
       )
       FetchContent_MakeAvailable(spirv-llvm-translator)
       if (HAVE_GLOBAL_CONSTRUCTORS)
