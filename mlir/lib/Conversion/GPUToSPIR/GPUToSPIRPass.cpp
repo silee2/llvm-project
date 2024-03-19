@@ -186,11 +186,6 @@ static const char get_num_sub_groups[] = "_Z27__spirv_BuiltInNumSubgroupsv";
 // static const char get_sub_group_size[] = "_Z18get_sub_group_sizev";
 static const char get_sub_group_size[] = "_Z27__spirv_BuiltInSubgroupSizev";
 
-/*
-_Z25__spirv_BuiltInGlobalSizei
-_Z29__spirv_BuiltInGlobalLinearIdv
-*/
-
 /// A pass that replaces all occurrences of GPU device operations with their
 /// corresponding VC intrinsics equivalent.
 ///
@@ -206,13 +201,6 @@ struct GPUToSPIRPass : public impl::ConvertGPUToSPIRBase<GPUToSPIRPass> {
     for (auto func : m.getOps<func::FuncOp>()) {
       func->setAttr(LLVM::LLVMDialect::getEmitCWrapperAttrName(),
                     UnitAttr::get(&getContext()));
-    }
-
-    // Collect kernels that need calling convention patch later
-    llvm::SmallVector<StringRef, 4> kernels;
-    for (auto gfunc : m.getOps<gpu::GPUFuncOp>()) {
-      if (gfunc.isKernel())
-        kernels.push_back(gfunc.getName());
     }
 
     LowerToLLVMOptions options(
@@ -286,7 +274,7 @@ struct GPUToSPIRPass : public impl::ConvertGPUToSPIRBase<GPUToSPIRPass> {
     MLIRContext *context = &getContext();
     OpBuilder builder(context);
     llvmPatterns.add<GPUFuncOpLowering>(converter, 0, 0,
-                                        builder.getStringAttr("spir_func"));
+                                        builder.getStringAttr("SPIR_KERNEL"));
     llvmPatterns.add<GPUReturnOpLowering>(converter);
 
     LLVMConversionTarget target(getContext());
@@ -298,30 +286,11 @@ struct GPUToSPIRPass : public impl::ConvertGPUToSPIRBase<GPUToSPIRPass> {
     // Apply Calling convention for spir
     // spir_kernel for kernel and spir_func for others.
     for (auto lfunc : m.getOps<LLVM::LLVMFuncOp>()) {
-      bool isKernel = false;
-      StringRef lfuncName = lfunc.getName();
-      for (StringRef kname : kernels) {
-        if (kname == lfuncName)
-          isKernel = true;
-      }
-      if (isKernel) {
+      if (lfunc->hasAttr("SPIR_KERNEL")) {
         lfunc.setCConv(LLVM::cconv::CConv::SPIR_KERNEL);
       } else {
         lfunc.setCConv(LLVM::cconv::CConv::SPIR_FUNC);
       }
-    }
-
-    // Set gpu.module's data_layout and target attribute
-    {
-      m->setAttr(LLVM::LLVMDialect::getDataLayoutAttrName(),
-                 StringAttr::get(
-                     m.getContext(),
-                     "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-"
-                     "f32:32:32-f64:64:64-v16:16:16-v24:32:32-v32:32:32-v48:64:"
-                     "64-v64:64:64-v96:128:128-v128:128:128-v192:256:256-v256:"
-                     "256:256-v512:512:512-v1024:1024:1024"));
-      m->setAttr(LLVM::LLVMDialect::getTargetTripleAttrName(),
-                 StringAttr::get(m.getContext(), "spir64-unknown-unknown"));
     }
   }
 };
