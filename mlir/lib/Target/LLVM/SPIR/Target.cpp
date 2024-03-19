@@ -207,6 +207,9 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
 
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
     MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
+  // FIXME: Somehow target machine is already created at this point. And parsing
+  // CommandLineOptions have no effect. Current workaround is to forcing to
+  // recreate target machine.
   if (needVectorCompute) {
     const char *argv[] = {"llc", "--spirv-extensions=SPV_INTEL_vector_compute"};
     if (!llvm::cl::ParseCommandLineOptions(2, argv, "SPIR-V backend")) {

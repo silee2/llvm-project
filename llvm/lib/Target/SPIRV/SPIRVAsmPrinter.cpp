@@ -462,6 +462,7 @@ void SPIRVAsmPrinter::outputExecutionMode(const Module &M) {
   }
   for (auto FI = M.begin(), E = M.end(); FI != E; ++FI) {
     const Function &F = *FI;
+    // TODO: Move to proper place.
     if (Attribute Attr = F.getFnAttribute("VCFunction"); Attr.isValid()) {
       Register FReg = MAI->getFuncReg(&F);
       assert(FReg.isValid());
