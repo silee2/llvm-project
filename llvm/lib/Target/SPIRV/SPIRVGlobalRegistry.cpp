@@ -15,7 +15,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "SPIRVGlobalRegistry.h"
-#include "MCTargetDesc/SPIRVBaseInfo.h"
 #include "SPIRV.h"
 #include "SPIRVBuiltins.h"
 #include "SPIRVSubtarget.h"
@@ -542,16 +541,6 @@ Register SPIRVGlobalRegistry::buildGlobalVariable(
   if (getSpirvBuiltInIdByName(Name, BuiltInId))
     buildOpDecorate(Reg, MIRBuilder, SPIRV::Decoration::BuiltIn,
                     {static_cast<uint32_t>(BuiltInId)});
-
-  if (isa<Function>(GV)) {
-    const SPIRVSubtarget &ST =
-        cast<SPIRVSubtarget>(MIRBuilder.getMF().getSubtarget());
-    if (ST.canUseExtension(SPIRV::Extension::SPV_INTEL_vector_compute)) {
-      if (cast<Function>(GV)->getFnAttribute("VCFunction").isValid())
-        buildOpDecorate(Reg, MIRBuilder,
-                        SPIRV::Decoration::VectorComputeFunctionINTEL, {});
-    }
-  }
 
   return Reg;
 }
