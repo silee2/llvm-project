@@ -11,9 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "MCTargetDesc/SPIRVBaseInfo.h"
 #include "MCTargetDesc/SPIRVInstPrinter.h"
-#include "MCTargetDesc/SPIRVMCTargetDesc.h"
 #include "SPIRV.h"
 #include "SPIRVInstrInfo.h"
 #include "SPIRVMCInstLower.h"
@@ -66,7 +64,6 @@ public:
   void outputOpMemoryModel();
   void outputOpFunctionEnd();
   void outputExtFuncDecls();
-  void outputDecorationFromVCFunctionAttribute(Register Reg);
   void outputExecutionModeFromMDNode(Register Reg, MDNode *Node,
                                      SPIRV::ExecutionMode::ExecutionMode EM);
   void outputExecutionModeFromNumthreadsAttribute(
@@ -408,15 +405,6 @@ static void addOpsFromMDNode(MDNode *MDN, MCInst &Inst,
   }
 }
 
-void SPIRVAsmPrinter::outputDecorationFromVCFunctionAttribute(Register Reg) {
-  MCInst Inst;
-  Inst.setOpcode(SPIRV::OpDecorate);
-  Inst.addOperand(MCOperand::createReg(Reg));
-  Inst.addOperand(MCOperand::createImm(
-      static_cast<unsigned>(SPIRV::Decoration::VectorComputeFunctionINTEL)));
-  outputMCInst(Inst);
-}
-
 void SPIRVAsmPrinter::outputExecutionModeFromMDNode(
     Register Reg, MDNode *Node, SPIRV::ExecutionMode::ExecutionMode EM) {
   MCInst Inst;
@@ -462,12 +450,6 @@ void SPIRVAsmPrinter::outputExecutionMode(const Module &M) {
   }
   for (auto FI = M.begin(), E = M.end(); FI != E; ++FI) {
     const Function &F = *FI;
-    // TODO: Move to proper place.
-    if (Attribute Attr = F.getFnAttribute("VCFunction"); Attr.isValid()) {
-      Register FReg = MAI->getFuncReg(&F);
-      assert(FReg.isValid());
-      outputDecorationFromVCFunctionAttribute(FReg);
-    }
     if (F.isDeclaration())
       continue;
     Register FReg = MAI->getFuncReg(&F);
