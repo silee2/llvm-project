@@ -545,10 +545,11 @@ Register SPIRVGlobalRegistry::buildGlobalVariable(
 
   if (isa<Function>(GV)) {
     const SPIRVSubtarget &ST =
-      cast<SPIRVSubtarget>(MIRBuilder.getMF().getSubtarget());
+        cast<SPIRVSubtarget>(MIRBuilder.getMF().getSubtarget());
     if (ST.canUseExtension(SPIRV::Extension::SPV_INTEL_vector_compute)) {
       if (cast<Function>(GV)->getFnAttribute("VCFunction").isValid())
-        buildOpDecorate(Reg, MIRBuilder, SPIRV::Decoration::VectorComputeFunctionINTEL, {});
+        buildOpDecorate(Reg, MIRBuilder,
+                        SPIRV::Decoration::VectorComputeFunctionINTEL, {});
     }
   }
 

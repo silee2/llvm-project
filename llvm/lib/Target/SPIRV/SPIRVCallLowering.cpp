@@ -363,6 +363,12 @@ bool SPIRVCallLowering::lowerFormalArguments(MachineIRBuilder &MIRBuilder,
     }
   }
 
+  if (ST->canUseExtension(SPIRV::Extension::SPV_INTEL_vector_compute)) {
+    if (F.getFnAttribute("VCFunction").isValid())
+      buildOpDecorate(FuncVReg, MIRBuilder,
+                      SPIRV::Decoration::VectorComputeFunctionINTEL, {});
+  }
+
   return true;
 }
 
