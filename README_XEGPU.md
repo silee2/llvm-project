@@ -73,7 +73,7 @@ Lowering pipeline from GPU dialect:
 ./build/bin/mlir-opt <path-to-test> -pass-pipeline='builtin.module(spir-attach-target{module=test.* chip=XeHPC ver=v1.0 caps=Kernel},func.func(gpu-async-region),gpu.module(map-memref-spirv-storage-class{client-api=opencl},convert-gpu-to-spir),func.func(llvm-request-c-wrappers),convert-scf-to-cf,convert-cf-to-llvm,convert-arith-to-llvm,convert-math-to-llvm,convert-func-to-llvm,gpu-to-llvm{use-bare-pointers-for-kernels=true},gpu-module-to-binary{format=isa},expand-strided-metadata,lower-affine,finalize-memref-to-llvm,reconcile-unrealized-casts)' --debug-only=serialize-spir-to-isa > /dev/null 2> <somename>.spt
 ```
 
-## Implementaion Files Interest
+## Implementaion Files Of Interest
 ### LLVM to SPIR-V translation (serializer)
 ```
 mlir/lib/Target/LLVM/SPIR/Target.cpp
