@@ -73,6 +73,12 @@ private:
   LogicalResult visit(Operation *op) {
     if (isa<gpu::LaunchOp>(op))
       return op->emitOpError("replace with gpu.launch_func first");
+    // gpu.alloc() host_shared cannot be done async
+    if (isa<gpu::AllocOp>(op)) {
+      auto allocOp = dyn_cast<gpu::AllocOp>(op);
+      if(allocOp.getHostShared())
+        return success();
+    }
     if (auto waitOp = llvm::dyn_cast<gpu::WaitOp>(op)) {
       if (currentToken)
         waitOp.addAsyncDependency(currentToken);
