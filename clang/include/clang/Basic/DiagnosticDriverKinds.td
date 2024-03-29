@@ -587,6 +587,9 @@ def warn_drv_unsupported_gpopt : Warning<
   "ignoring '-mgpopt' option as it cannot be used with %select{|the implicit"
   " usage of }0-mabicalls">,
   InGroup<UnsupportedGPOpt>;
+def warn_drv_unsupported_tocdata: Warning<
+  "ignoring '-mtocdata' as it is only supported for -mcmodel=small">,
+  InGroup<OptionIgnored>;
 def warn_drv_unsupported_sdata : Warning<
   "ignoring '-msmall-data-limit=' with -mcmodel=large for -fpic or RV64">,
   InGroup<OptionIgnored>;
@@ -693,7 +696,6 @@ def err_drv_cannot_mix_options : Error<"cannot specify '%1' along with '%0'">;
 def err_drv_invalid_object_mode : Error<
   "OBJECT_MODE setting %0 is not recognized and is not a valid setting">;
 
-def err_aix_unsupported_tls_model : Error<"TLS model '%0' is not yet supported on AIX">;
 def err_roptr_requires_data_sections: Error<"-mxcoff-roptr is supported only with -fdata-sections">;
 def err_roptr_cannot_build_shared: Error<"-mxcoff-roptr is not supported with -shared">;
 
@@ -751,7 +753,8 @@ def err_drv_hlsl_unsupported_target : Error<
   "HLSL code generation is unsupported for target '%0'">;
 def err_drv_hlsl_bad_shader_required_in_target : Error<
   "%select{shader model|Vulkan environment|shader stage}0 is required as %select{OS|environment}1 in target '%2' for HLSL code generation">;
-
+def err_drv_hlsl_16bit_types_unsupported: Error<
+  "'%0' option requires target HLSL Version >= 2018%select{| and shader model >= 6.2}1, but HLSL Version is '%2'%select{| and shader model is '%3'}1">;
 def err_drv_hlsl_bad_shader_unsupported : Error<
   "%select{shader model|Vulkan environment|shader stage}0 '%1' in target '%2' is invalid for HLSL code generation">;
 def warn_drv_dxc_missing_dxv : Warning<"dxv not found. "
@@ -804,7 +807,4 @@ def warn_android_unversioned_fallback : Warning<
 
 def err_drv_triple_version_invalid : Error<
   "version '%0' in target triple '%1' is invalid">;
-
-def err_drv_installapi_unsupported : Error<
-  "InstallAPI is not supported for '%0'">;
 }

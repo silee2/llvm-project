@@ -18,7 +18,6 @@
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLowering.h"
-#include "llvm/TargetParser/RISCVTargetParser.h"
 #include <optional>
 
 namespace llvm {
@@ -126,9 +125,11 @@ enum NodeType : unsigned {
   // Floating point fmax and fmin matching the RISC-V instruction semantics.
   FMAX, FMIN,
 
-  // READ_CYCLE_WIDE - A read of the 64-bit cycle CSR on a 32-bit target
-  // (returns (Lo, Hi)). It takes a chain operand.
-  READ_CYCLE_WIDE,
+  // A read of the 64-bit counter CSR on a 32-bit target (returns (Lo, Hi)).
+  // It takes a chain operand and another two target constant operands (the
+  // CSR numbers of the low and high parts of the counter).
+  READ_COUNTER_WIDE,
+
   // brev8, orc.b, zip, and unzip from Zbb and Zbkb. All operands are i32 or
   // XLenVT.
   BREV8,
@@ -584,6 +585,12 @@ public:
                                            const SelectionDAG &DAG,
                                            unsigned Depth) const override;
 
+  bool canCreateUndefOrPoisonForTargetNode(SDValue Op,
+                                           const APInt &DemandedElts,
+                                           const SelectionDAG &DAG,
+                                           bool PoisonOnly, bool ConsiderFlags,
+                                           unsigned Depth) const override;
+
   const Constant *getTargetConstantFromLoad(LoadSDNode *LD) const override;
 
   // This method returns the name of a target specific DAG node.
@@ -993,7 +1000,7 @@ private:
   /// RISC-V doesn't have flags so it's better to perform the and/or in a GPR.
   bool shouldNormalizeToSelectSequence(LLVMContext &, EVT) const override {
     return false;
-  };
+  }
 
   /// For available scheduling models FDIV + two independent FMULs are much
   /// faster than two FDIVs.

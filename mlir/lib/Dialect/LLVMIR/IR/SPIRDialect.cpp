@@ -52,7 +52,7 @@ void SPIRDialect::initialize() {
 
   // Support unknown operations because not all SPIR operations are registered.
   allowUnknownOperations();
-  declarePromisedInterface<SPIRTargetAttr, gpu::TargetAttrInterface>();
+  declarePromisedInterface<gpu::TargetAttrInterface, SPIRTargetAttr>();
 }
 
 LogicalResult SPIRDialect::verifyOperationAttribute(Operation *op,

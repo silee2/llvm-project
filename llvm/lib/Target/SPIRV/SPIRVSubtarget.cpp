@@ -14,6 +14,7 @@
 #include "MCTargetDesc/SPIRVBaseInfo.h"
 #include "MCTargetDesc/SPIRVMCTargetDesc.h"
 #include "SPIRV.h"
+#include "SPIRVCommandLine.h"
 #include "SPIRVGlobalRegistry.h"
 #include "SPIRVLegalizerInfo.h"
 #include "SPIRVRegisterBankInfo.h"
@@ -29,38 +30,15 @@ using namespace llvm;
 #define GET_SUBTARGETINFO_CTOR
 #include "SPIRVGenSubtargetInfo.inc"
 
-cl::list<SPIRV::Extension::Extension> Extensions(
-    "spirv-extensions", cl::desc("SPIR-V extensions"), cl::ZeroOrMore,
-    cl::Hidden,
-    cl::values(
-        clEnumValN(SPIRV::Extension::SPV_INTEL_arbitrary_precision_integers,
-                   "SPV_INTEL_arbitrary_precision_integers",
-                   "Allows generating arbitrary width integer types"),
-        clEnumValN(SPIRV::Extension::SPV_INTEL_optnone, "SPV_INTEL_optnone",
-                   "Adds OptNoneINTEL value for Function Control mask that "
-                   "indicates a request to not optimize the function"),
-        clEnumValN(SPIRV::Extension::SPV_INTEL_subgroups, "SPV_INTEL_subgroups",
-                   "Allows work items in a subgroup to share data without the "
-                   "use of local memory and work group barriers, and to "
-                   "utilize specialized hardware to load and store blocks of "
-                   "data from images or buffers."),
-        clEnumValN(SPIRV::Extension::SPV_KHR_no_integer_wrap_decoration,
-                   "SPV_KHR_no_integer_wrap_decoration",
-                   "Adds decorations to indicate that a given instruction does "
-                   "not cause integer wrapping"),
-        clEnumValN(SPIRV::Extension::SPV_KHR_expect_assume,
-                   "SPV_KHR_expect_assume",
-                   "Provides additional information to a compiler, similar to "
-                   "the llvm.assume and llvm.expect intrinsics."),
-        clEnumValN(SPIRV::Extension::SPV_KHR_bit_instructions,
-                   "SPV_KHR_bit_instructions",
-                   "This enables bit instructions to be used by SPIR-V modules "
-                   "without requiring the Shader capability"),
-        clEnumValN(SPIRV::Extension::SPV_INTEL_function_pointers,
-                   "SPV_INTEL_function_pointers",
-                   "Allows translation of function pointers"),
-        clEnumValN(SPIRV::Extension::SPV_INTEL_vector_compute,
-                   "SPV_INTEL_vector_compute", "Allows vector compute")));
+static cl::opt<bool>
+    SPVTranslatorCompat("translator-compatibility-mode",
+                        cl::desc("SPIR-V Translator compatibility mode"),
+                        cl::Optional, cl::init(false));
+
+static cl::opt<std::set<SPIRV::Extension::Extension>, false,
+               SPIRVExtensionsParser>
+    Extensions("spirv-ext",
+               cl::desc("Specify list of enabled SPIR-V extensions"));
 
 // Compare version numbers, but allow 0 to mean unspecified.
 static bool isAtLeastVer(uint32_t Target, uint32_t VerToCompareTo) {
@@ -117,8 +95,9 @@ bool SPIRVSubtarget::isAtLeastOpenCLVer(uint32_t VerToCompareTo) const {
 }
 
 // If the SPIR-V version is >= 1.4 we can call OpPtrEqual and OpPtrNotEqual.
+// In SPIR-V Translator compatibility mode this feature is not available.
 bool SPIRVSubtarget::canDirectlyComparePointers() const {
-  return isAtLeastVer(SPIRVVersion, 14);
+  return !SPVTranslatorCompat && isAtLeastVer(SPIRVVersion, 14);
 }
 
 void SPIRVSubtarget::initAvailableExtensions() {
@@ -126,8 +105,7 @@ void SPIRVSubtarget::initAvailableExtensions() {
   if (!isOpenCLEnv())
     return;
 
-  for (auto Extension : Extensions)
-    AvailableExtensions.insert(Extension);
+  AvailableExtensions.insert(Extensions.begin(), Extensions.end());
 }
 
 // TODO: use command line args for this rather than just defaults.

@@ -471,6 +471,13 @@ private:
 public:
   InstrProfSymtab() = default;
 
+  // Not copyable or movable.
+  // Consider std::unique_ptr for move.
+  InstrProfSymtab(const InstrProfSymtab &) = delete;
+  InstrProfSymtab &operator=(const InstrProfSymtab &) = delete;
+  InstrProfSymtab(InstrProfSymtab &&) = delete;
+  InstrProfSymtab &operator=(InstrProfSymtab &&) = delete;
+
   /// Create InstrProfSymtab from an object file section which
   /// contains function PGO names. When section may contain raw
   /// string data or string data in compressed form. This method
@@ -831,6 +838,7 @@ private:
   struct ValueProfData {
     std::vector<InstrProfValueSiteRecord> IndirectCallSites;
     std::vector<InstrProfValueSiteRecord> MemOPSizes;
+    std::vector<InstrProfValueSiteRecord> VTableTargets;
   };
   std::unique_ptr<ValueProfData> ValueData;
 
@@ -853,6 +861,8 @@ private:
       return ValueData->IndirectCallSites;
     case IPVK_MemOPSize:
       return ValueData->MemOPSizes;
+    case IPVK_VTableTarget:
+      return ValueData->VTableTargets;
     default:
       llvm_unreachable("Unknown value kind!");
     }
@@ -1036,7 +1046,9 @@ enum ProfVersion {
   Version10 = 10,
   // An additional field is used for bitmap bytes.
   Version11 = 11,
-  // The current version is 11.
+  // VTable profiling,
+  Version12 = 12,
+  // The current version is 12.
   CurrentVersion = INSTR_PROF_INDEX_VERSION
 };
 const uint64_t Version = ProfVersion::CurrentVersion;
@@ -1050,13 +1062,20 @@ inline uint64_t ComputeHash(StringRef K) { return ComputeHash(HashType, K); }
 // as appropriate when updating the indexed profile format.
 struct Header {
   uint64_t Magic;
+  // The lower 32 bits specify the version of the indexed profile.
+  // The most significant 32 bits are reserved to specify the variant types of
+  // the profile.
   uint64_t Version;
   uint64_t Unused; // Becomes unused since version 4
   uint64_t HashType;
+  // This field records the offset of this hash table's metadata (i.e., the
+  // number of buckets and entries), which follows right after the payload of
+  // the entire hash table.
   uint64_t HashOffset;
   uint64_t MemProfOffset;
   uint64_t BinaryIdOffset;
   uint64_t TemporalProfTracesOffset;
+  uint64_t VTableNamesOffset;
   // New fields should only be added at the end to ensure that the size
   // computation is correct. The methods below need to be updated to ensure that
   // the new field is read correctly.
@@ -1193,8 +1212,13 @@ template <> inline uint64_t getMagic<uint32_t>() {
 // It should also match the synthesized type in
 // Transforms/Instrumentation/InstrProfiling.cpp:getOrCreateRegionCounters.
 template <class IntPtrT> struct alignas(8) ProfileData {
-  #define INSTR_PROF_DATA(Type, LLVMType, Name, Init) Type Name;
-  #include "llvm/ProfileData/InstrProfData.inc"
+#define INSTR_PROF_DATA(Type, LLVMType, Name, Init) Type Name;
+#include "llvm/ProfileData/InstrProfData.inc"
+};
+
+template <class IntPtrT> struct alignas(8) VTableProfileData {
+#define INSTR_PROF_VTABLE_DATA(Type, LLVMType, Name, Init) Type Name;
+#include "llvm/ProfileData/InstrProfData.inc"
 };
 
 // File header structure of the LLVM profile data in raw format.

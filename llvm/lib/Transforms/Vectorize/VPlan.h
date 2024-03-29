@@ -236,9 +236,7 @@ struct VPIteration {
 struct VPTransformState {
   VPTransformState(ElementCount VF, unsigned UF, LoopInfo *LI,
                    DominatorTree *DT, IRBuilderBase &Builder,
-                   InnerLoopVectorizer *ILV, VPlan *Plan, LLVMContext &Ctx)
-      : VF(VF), UF(UF), LI(LI), DT(DT), Builder(Builder), ILV(ILV), Plan(Plan),
-        LVer(nullptr), TypeAnalysis(Ctx) {}
+                   InnerLoopVectorizer *ILV, VPlan *Plan, LLVMContext &Ctx);
 
   /// The chosen Vectorization and Unroll Factors of the loop being vectorized.
   ElementCount VF;
@@ -261,12 +259,10 @@ struct VPTransformState {
     DenseMap<VPValue *, ScalarsPerPartValuesTy> PerPartScalars;
   } Data;
 
-  /// Get the generated Value for a given VPValue and a given Part. Note that
-  /// as some Defs are still created by ILV and managed in its ValueMap, this
-  /// method will delegate the call to ILV in such cases in order to provide
-  /// callers a consistent API.
-  /// \see set.
-  Value *get(VPValue *Def, unsigned Part);
+  /// Get the generated vector Value for a given VPValue \p Def and a given \p
+  /// Part if \p IsScalar is false, otherwise return the generated scalar
+  /// for \p Part. \See set.
+  Value *get(VPValue *Def, unsigned Part, bool IsScalar = false);
 
   /// Get the generated Value for a given VPValue and given Part and Lane.
   Value *get(VPValue *Def, const VPIteration &Instance);
@@ -287,14 +283,22 @@ struct VPTransformState {
            I->second[Instance.Part][CacheIdx];
   }
 
-  /// Set the generated Value for a given VPValue and a given Part.
-  void set(VPValue *Def, Value *V, unsigned Part) {
+  /// Set the generated vector Value for a given VPValue and a given Part, if \p
+  /// IsScalar is false. If \p IsScalar is true, set the scalar in (Part, 0).
+  void set(VPValue *Def, Value *V, unsigned Part, bool IsScalar = false) {
+    if (IsScalar) {
+      set(Def, V, VPIteration(Part, 0));
+      return;
+    }
+    assert((VF.isScalar() || V->getType()->isVectorTy()) &&
+           "scalar values must be stored as (Part, 0)");
     if (!Data.PerPartOutput.count(Def)) {
       DataState::PerPartValuesTy Entry(UF);
       Data.PerPartOutput[Def] = Entry;
     }
     Data.PerPartOutput[Def][Part] = V;
   }
+
   /// Reset an existing vector value for \p Def and a given \p Part.
   void reset(VPValue *Def, Value *V, unsigned Part) {
     auto Iter = Data.PerPartOutput.find(Def);
@@ -307,12 +311,12 @@ struct VPTransformState {
   void set(VPValue *Def, Value *V, const VPIteration &Instance) {
     auto Iter = Data.PerPartScalars.insert({Def, {}});
     auto &PerPartVec = Iter.first->second;
-    while (PerPartVec.size() <= Instance.Part)
-      PerPartVec.emplace_back();
+    if (PerPartVec.size() <= Instance.Part)
+      PerPartVec.resize(Instance.Part + 1);
     auto &Scalars = PerPartVec[Instance.Part];
     unsigned CacheIdx = Instance.Lane.mapToCacheIndex(VF);
-    while (Scalars.size() <= CacheIdx)
-      Scalars.push_back(nullptr);
+    if (Scalars.size() <= CacheIdx)
+      Scalars.resize(CacheIdx + 1);
     assert(!Scalars[CacheIdx] && "should overwrite existing value");
     Scalars[CacheIdx] = V;
   }
@@ -387,11 +391,6 @@ struct VPTransformState {
 
   /// Hold a reference to the IRBuilder used to generate output IR code.
   IRBuilderBase &Builder;
-
-  VPValue2ValueTy VPValue2Value;
-
-  /// Hold the canonical scalar IV of the vector loop (start=0, step=VF*UF).
-  Value *CanonicalIV = nullptr;
 
   /// Hold a pointer to InnerLoopVectorizer to reuse its IR generation methods.
   InnerLoopVectorizer *ILV;
@@ -1128,6 +1127,12 @@ public:
     return WrapFlags.HasNSW;
   }
 
+  bool isDisjoint() const {
+    assert(OpType == OperationType::DisjointOp &&
+           "recipe cannot have a disjoing flag");
+    return DisjointFlags.IsDisjoint;
+  }
+
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   void printFlags(raw_ostream &O) const;
 #endif
@@ -1156,6 +1161,10 @@ public:
     BranchOnCount,
     BranchOnCond,
     ComputeReductionResult,
+    // Add an offset in bytes (second operand) to a base pointer (first
+    // operand). Only generates scalar values (either for the first lane only or
+    // for all lanes, depending on its uses).
+    PtrAdd,
   };
 
 private:
@@ -1165,20 +1174,34 @@ private:
   /// An optional name that can be used for the generated IR instruction.
   const std::string Name;
 
-  /// Utility method serving execute(): generates a single instance of the
-  /// modeled instruction. \returns the generated value for \p Part.
-  /// In some cases an existing value is returned rather than a generated
+  /// Returns true if this VPInstruction generates scalar values for all lanes.
+  /// Most VPInstructions generate a single value per part, either vector or
+  /// scalar. VPReplicateRecipe takes care of generating multiple (scalar)
+  /// values per all lanes, stemming from an original ingredient. This method
+  /// identifies the (rare) cases of VPInstructions that do so as well, w/o an
+  /// underlying ingredient.
+  bool doesGeneratePerAllLanes() const;
+
+  /// Returns true if we can generate a scalar for the first lane only if
+  /// needed.
+  bool canGenerateScalarForFirstLane() const;
+
+  /// Utility methods serving execute(): generates a single instance of the
+  /// modeled instruction for a given part. \returns the generated value for \p
+  /// Part. In some cases an existing value is returned rather than a generated
   /// one.
-  Value *generateInstruction(VPTransformState &State, unsigned Part);
+  Value *generatePerPart(VPTransformState &State, unsigned Part);
+
+  /// Utility methods serving execute(): generates a scalar single instance of
+  /// the modeled instruction for a given lane. \returns the scalar generated
+  /// value for lane \p Lane.
+  Value *generatePerLane(VPTransformState &State, const VPIteration &Lane);
 
 #if !defined(NDEBUG)
   /// Return true if the VPInstruction is a floating point math operation, i.e.
   /// has fast-math flags.
   bool isFPMathOp() const;
 #endif
-
-protected:
-  void setUnderlyingInstr(Instruction *I) { setUnderlyingValue(I); }
 
 public:
   VPInstruction(unsigned Opcode, ArrayRef<VPValue *> Operands, DebugLoc DL,
@@ -1269,6 +1292,7 @@ public:
     default:
       return false;
     case VPInstruction::BranchOnCount:
+    case VPInstruction::CanonicalIVIncrementForPart:
       return true;
     };
     llvm_unreachable("switch should return");
@@ -1389,6 +1413,13 @@ public:
 
   /// Returns the result type of the cast.
   Type *getResultType() const { return ResultTy; }
+
+  bool onlyFirstLaneUsed(const VPValue *Op) const override {
+    // At the moment, only uniform codegen is implemented.
+    assert(is_contained(operands(), Op) &&
+           "Op must be an operand of the recipe");
+    return true;
+  }
 };
 
 /// A recipe for widening Call instructions.
@@ -1742,17 +1773,17 @@ public:
 #endif
 };
 
-/// A recipe for handling header phis that are widened in the vector loop.
+/// A recipe for handling phis that are widened in the vector loop.
 /// In the VPlan native path, all incoming VPValues & VPBasicBlock pairs are
 /// managed in the recipe directly.
-class VPWidenPHIRecipe : public VPHeaderPHIRecipe {
+class VPWidenPHIRecipe : public VPSingleDefRecipe {
   /// List of incoming blocks. Only used in the VPlan native path.
   SmallVector<VPBasicBlock *, 2> IncomingBlocks;
 
 public:
   /// Create a new VPWidenPHIRecipe for \p Phi with start value \p Start.
   VPWidenPHIRecipe(PHINode *Phi, VPValue *Start = nullptr)
-      : VPHeaderPHIRecipe(VPDef::VPWidenPHISC, Phi) {
+      : VPSingleDefRecipe(VPDef::VPWidenPHISC, ArrayRef<VPValue *>(), Phi) {
     if (Start)
       addOperand(Start);
   }
@@ -2133,6 +2164,8 @@ public:
     assert(isPredicated() && "Trying to get the mask of a unpredicated recipe");
     return getOperand(getNumOperands() - 1);
   }
+
+  unsigned getOpcode() const { return getUnderlyingInstr()->getOpcode(); }
 };
 
 /// A recipe for generating conditional branches on the bits of a mask.
@@ -2485,12 +2518,6 @@ class VPDerivedIVRecipe : public VPSingleDefRecipe {
   /// for floating point inductions.
   const FPMathOperator *FPBinOp;
 
-  VPDerivedIVRecipe(InductionDescriptor::InductionKind Kind,
-                    const FPMathOperator *FPBinOp, VPValue *Start,
-                    VPCanonicalIVPHIRecipe *CanonicalIV, VPValue *Step)
-      : VPSingleDefRecipe(VPDef::VPDerivedIVSC, {Start, CanonicalIV, Step}),
-        Kind(Kind), FPBinOp(FPBinOp) {}
-
 public:
   VPDerivedIVRecipe(const InductionDescriptor &IndDesc, VPValue *Start,
                     VPCanonicalIVPHIRecipe *CanonicalIV, VPValue *Step)
@@ -2498,6 +2525,12 @@ public:
             IndDesc.getKind(),
             dyn_cast_or_null<FPMathOperator>(IndDesc.getInductionBinOp()),
             Start, CanonicalIV, Step) {}
+
+  VPDerivedIVRecipe(InductionDescriptor::InductionKind Kind,
+                    const FPMathOperator *FPBinOp, VPValue *Start,
+                    VPCanonicalIVPHIRecipe *CanonicalIV, VPValue *Step)
+      : VPSingleDefRecipe(VPDef::VPDerivedIVSC, {Start, CanonicalIV, Step}),
+        Kind(Kind), FPBinOp(FPBinOp) {}
 
   ~VPDerivedIVRecipe() override = default;
 
@@ -2867,10 +2900,6 @@ class VPlan {
   /// definitions are VPValues that hold a pointer to their underlying IR.
   SmallVector<VPValue *, 16> VPLiveInsToFree;
 
-  /// Indicates whether it is safe use the Value2VPValue mapping or if the
-  /// mapping cannot be used any longer, because it is stale.
-  bool Value2VPValueEnabled = true;
-
   /// Values used outside the plan.
   MapVector<PHINode *, VPLiveOut *> LiveOuts;
 
@@ -2928,6 +2957,14 @@ public:
     return TripCount;
   }
 
+  /// Resets the trip count for the VPlan. The caller must make sure all uses of
+  /// the original trip count have been replaced.
+  void resetTripCount(VPValue *NewTripCount) {
+    assert(TripCount && NewTripCount && TripCount->getNumUsers() == 0 &&
+           "TripCount always must be set");
+    TripCount = NewTripCount;
+  }
+
   /// The backedge taken count of the original loop.
   VPValue *getOrCreateBackedgeTakenCount() {
     if (!BackedgeTakenCount)
@@ -2940,10 +2977,6 @@ public:
 
   /// Returns VF * UF of the vector loop region.
   VPValue &getVFxUF() { return VFxUF; }
-
-  /// Mark the plan to indicate that using Value2VPValue is not safe any
-  /// longer, because it may be stale.
-  void disableValue2VPValue() { Value2VPValueEnabled = false; }
 
   void addVF(ElementCount VF) { VFs.insert(VF); }
 
@@ -2974,27 +3007,24 @@ public:
   void setName(const Twine &newName) { Name = newName.str(); }
 
   void addVPValue(Value *V, VPValue *VPV) {
-    assert((Value2VPValueEnabled || VPV->isLiveIn()) &&
-           "Value2VPValue mapping may be out of date!");
+    assert(VPV->isLiveIn() && "VPV must be a live-in.");
     assert(V && "Trying to add a null Value to VPlan");
     assert(!Value2VPValue.count(V) && "Value already exists in VPlan");
     Value2VPValue[V] = VPV;
   }
 
-  /// Returns the VPValue for \p V. \p OverrideAllowed can be used to disable
-  ///   /// checking whether it is safe to query VPValues using IR Values.
-  VPValue *getVPValue(Value *V, bool OverrideAllowed = false) {
+  /// Returns the VPValue for \p V.
+  VPValue *getVPValue(Value *V) {
     assert(V && "Trying to get the VPValue of a null Value");
     assert(Value2VPValue.count(V) && "Value does not exist in VPlan");
-    assert((Value2VPValueEnabled || OverrideAllowed ||
-            Value2VPValue[V]->isLiveIn()) &&
-           "Value2VPValue mapping may be out of date!");
+    assert(Value2VPValue[V]->isLiveIn() &&
+           "Only live-ins should be in mapping");
     return Value2VPValue[V];
   }
 
-  /// Gets the VPValue for \p V or adds a new live-in (if none exists yet) for
-  /// \p V.
-  VPValue *getVPValueOrAddLiveIn(Value *V) {
+  /// Gets the live-in VPValue for \p V or adds a new live-in (if none exists
+  ///  yet) for \p V.
+  VPValue *getOrAddLiveIn(Value *V) {
     assert(V && "Trying to get or add the VPValue of a null Value");
     if (!Value2VPValue.count(V)) {
       VPValue *VPV = new VPValue(V);
@@ -3018,16 +3048,6 @@ public:
   /// Dump the plan to stderr (for debugging).
   LLVM_DUMP_METHOD void dump() const;
 #endif
-
-  /// Returns a range mapping the values the range \p Operands to their
-  /// corresponding VPValues.
-  iterator_range<mapped_iterator<Use *, std::function<VPValue *(Value *)>>>
-  mapToVPValues(User::op_range Operands) {
-    std::function<VPValue *(Value *)> Fn = [this](Value *Op) {
-      return getVPValueOrAddLiveIn(Op);
-    };
-    return map_range(Operands, Fn);
-  }
 
   /// Returns the VPRegionBlock of the vector loop.
   VPRegionBlock *getVectorLoopRegion() {
