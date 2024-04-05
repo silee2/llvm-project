@@ -86,3 +86,30 @@ mlir/lib/Conversion/GPUToSPIR/GPUToSPIRPass.cpp
 ## TODO:
 ### GPUToSPIR
 ### Translation
+
+## Design workflow
+
+### Input
+gpu.module containing device code with gpu.func. func body has gpu dialect ops and may contain downstream dialect ops as well.
+
+### Overall flow
+Step 1. Use upstream "attach spir target" to attach spir.target with options for SPIR-V serialization.
+Step 2: Use downstream conversion pass(es) that converts:
+    - gpu ops that have no upstream lowering to LLVM
+    - gpu ops that have upsteam lowering to LLVM but want to use vendor specific lowering.
+    - other upstream dialect ops that have upstream lowering to LLVM but want to use vendor specific lowering.
+    - downstream dialect that does not have a lowering to LLVM.
+   To func.call to vendor specific intrinsic function.
+Step 3: Use upstream GPUToSPIR pass that converts gpu.func from Step 2 to llvm.func. Note that This pass handles gpu index op lowering.
+Step 4: Use upstream gpu module to binary pass that converts llvm.func to gpu.binary
+Step 5: Use upstream GPUToLLVM pass that lowers host code
+Step 6: Use mlir-cpu-runner with upstream SYCL wrapper.
+
+Note that only Step 2: requires downstream a downstream component. All other steps are upstream.
+
+### Upstream changes:
+1. spir dialect with spir.target as the only op for Step 1.
+2. attach spir target pass for Step 1.
+3. GPUToSPIR pass for Step 3.
+4. mlir/lib/Target/LLVM/SPIR/Target.cpp for Step 4.
+5. llvm/lib/Target/SPIRV updates to support SPIR-V serialization for Step 4.
