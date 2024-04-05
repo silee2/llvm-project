@@ -1,29 +1,35 @@
 # LLVM GPU Offloading support
-## TODO: Update this document for LLVM GPU Offloading support
-## Purpose
-Add minimal support for LLVM GPU offloading to enable downstream projects to
+## Goal
+Add minimal support for LLVM GPU offloading in upstream to enable downstream projects to
 add support for GPUs without an upstream LLVM backend.
 
+## Input
+gpu.module containing device code with gpu.func. func body has gpu dialect ops.
+
 ## Overall flow
-1. Input with gpu.func using gpu dialect.
-2. Upstream "attach llvm offload target" to attach vendor specific attributes.
-3. Downstream conversion pass that converts part of gpu.func that lowers to func.calls to vendor specific intrinsic function.
-4. Upstream GPUToLLVMOffload pass that converts gpu.func to llvm.func
-5. Upstream gpu module to binary pass that converts llvm.func to gpu.binary
-6. Upstream GPUToLLVM pass that lowers host side code
-7. Downstream gpu execution engine that implements the common mgpuXXX API used by upstream. This execution engine accepts serialized LLVM bitcode as payload.
+Step 1. Use upstream "attach llvm offload target" to attach vendor specific attributes.
+Step 2: Use downstream conversion pass(es) that converts:
+    - gpu ops that have no upstream lowering to LLVM
+    - gpu ops that have upsteam lowering to LLVM but want to use vendor specific lowering.
+    - other dialect ops that have upstream lowering to LLVM but want to use vendor specific lowering.
+   To func.call to vendor specific intrinsic function.
+Step 3: Use upstream GPUToLLVMOffload pass that converts gpu.func from Step 2 to llvm.func
+Step 4: Use upstream gpu module to binary pass that converts llvm.func to gpu.binary
+Step 5: Use upstream GPUToLLVM pass that lowers host code
+Step 6: Use mlir-cpu-runner with downstream gpu execution engine wrapper that implements the common mgpuXXX API used by upstream. This execution engine accepts serialized LLVM bitcode as payload.
 
-In summary, downstream needs to implement the following:
-1. Conversion pass that converts gpu.func to vendor specific intrinsic function.
-2. Execution engine that implements the common mgpuXXX API used by upstream.
+## Required changes
+### Downstream:
+1. Conversion pass for Step 2.
+2. Execution engine that implements the common mgpuXXX API used by upstream for Step 6.
 
-Upstream needs to implement the following:
-1. llvm.offload_target attribute
-2. attach llvm offload target pass
-3. GPUToLLVMOffload pass
-4. LLVMOffload target that only supports format=offload
+### Upstream:
+1. llvm.offload_target attribute for Step 1.
+2. attach llvm offload target passi for Step 1.
+3. GPUToLLVMOffload pass for Step 3.
+4. LLVMOffload target that only supports format=offload for Step 4.
 
-## How to demonstrate flow in upstream
+## How to illustrate flow in upstream
 Option 1: Write a test pass and a test execution engine targeting SPIR-V and OpenCL runtime and add some integration tests.
 Option 2: Write an example with pass and execution engine targeting SPIR-V and OpenCL runtime and add some integration tests.
 
