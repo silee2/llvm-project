@@ -75,7 +75,12 @@ private:
       return op->emitOpError("replace with gpu.launch_func first");
     // gpu.alloc() host_shared cannot be done async
     if (isa<gpu::AllocOp>(op)) {
-      auto allocOp = dyn_cast<gpu::AllocOp>(op);
+      gpu::AllocOp allocOp = dyn_cast<gpu::AllocOp>(op);
+      if(allocOp.getHostShared())
+        return success();
+    }
+    if (isa<gpu::DeallocOp>(op)) {
+      gpu::AllocOp allocOp = op->getOperand(0).getDefiningOp<gpu::AllocOp>();
       if(allocOp.getHostShared())
         return success();
     }
