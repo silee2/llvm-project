@@ -92,6 +92,9 @@ static void *allocDeviceMemory(sycl::queue *queue, size_t size, bool isShared) {
 }
 
 static void deallocDeviceMemory(sycl::queue *queue, void *ptr) {
+  if (queue == nullptr) {
+    queue = new sycl::queue(getDefaultContext(), getDefaultDevice());
+  }
   sycl::free(ptr, *queue);
 }
 

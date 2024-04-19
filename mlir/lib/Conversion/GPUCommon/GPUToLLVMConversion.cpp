@@ -876,24 +876,24 @@ LogicalResult ConvertDeallocOpToGpuRuntimeCallPattern::matchAndRewrite(
   bool isHostShared = false;
   auto *op = deallocOp.getOperation();
   for (auto operand : op->getOperands()) {
-     gpu::AllocOp allocOp = operand.getDefiningOp<gpu::AllocOp>();
-     if (!allocOp)
-       continue;
-     if (allocOp.getHostShared())
-       isHostShared = true;
+    gpu::AllocOp allocOp = operand.getDefiningOp<gpu::AllocOp>();
+    if (!allocOp)
+      continue;
+    if (allocOp.getHostShared())
+      isHostShared = true;
   }
 
   if (failed(areAllLLVMTypes(deallocOp, adaptor.getOperands(), rewriter)) ||
-      (!isHostShared &&
-      failed(isAsyncWithOneDependency(rewriter, deallocOp))))
+      (!isHostShared && failed(isAsyncWithOneDependency(rewriter, deallocOp))))
     return failure();
 
   Location loc = deallocOp.getLoc();
 
   Value pointer =
       MemRefDescriptor(adaptor.getMemref()).allocatedPtr(rewriter, loc);
-  Value stream = isHostShared ? rewriter.create<mlir::LLVM::ZeroOp>(loc, llvmPointerType)
-                              : adaptor.getAsyncDependencies().front();
+  Value stream = isHostShared
+                     ? rewriter.create<mlir::LLVM::ZeroOp>(loc, llvmPointerType)
+                     : adaptor.getAsyncDependencies().front();
   deallocCallBuilder.create(loc, rewriter, {pointer, stream});
 
   if (isHostShared)

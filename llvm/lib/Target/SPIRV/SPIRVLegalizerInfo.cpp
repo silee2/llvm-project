@@ -217,10 +217,10 @@ SPIRVLegalizerInfo::SPIRVLegalizerInfo(const SPIRVSubtarget &ST) {
   getActionDefinitionsBuilder(G_PHI).legalIf(LegalityPredicates::any(
       typeInSet(0, allPtrsScalarsAndVectors), LegalityPredicate(canUseIVC)));
 
-  getActionDefinitionsBuilder(G_BITCAST).legalIf(LegalityPredicates::any(
-      all(typeInSet(0, allPtrsScalarsAndVectors),
-          typeInSet(1, allPtrsScalarsAndVectors)),
-      LegalityPredicate(canUseIVC)));
+  getActionDefinitionsBuilder(G_BITCAST).legalIf(
+      LegalityPredicates::any(all(typeInSet(0, allPtrsScalarsAndVectors),
+                                  typeInSet(1, allPtrsScalarsAndVectors)),
+                              LegalityPredicate(canUseIVC)));
 
   getActionDefinitionsBuilder({G_IMPLICIT_DEF, G_FREEZE}).alwaysLegal();
 
