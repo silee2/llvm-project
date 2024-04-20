@@ -28,6 +28,7 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Target/TargetMachine.h"
 
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
     MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 1
@@ -157,10 +158,8 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   LLVM_DEBUG({ llvm::dbgs() << llvmModule << "\n"; });
 #undef DEBUG_TYPE
   llvmModule.setTargetTriple("spir64-unknown-unknown");
-  llvmModule.setDataLayout(
-      "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:"
-      "64:64-v16:16:16-v24:32:32-v32:32:32-v48:64:64-v64:64:64-v96:128:128-"
-      "v128:128:128-v192:256:256-v256:256:256-v512:512:512-v1024:1024:1024");
+  llvmModule.setDataLayout("e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:"
+                           "256-v256:256-v512:512-v1024:1024-G1");
   bool needVectorCompute = false;
   if (getTarget().getVce()) {
     for (const spirv::Extension &exts : getTarget().getVce()->getExtensions()) {
@@ -223,6 +222,7 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
                                << triple << ", can't compile with LLVM\n";
     return std::nullopt;
   }
+  // llvmModule.setDataLayout((*targetMachine)->createDataLayout());
 #endif
 
 #if MLIR_SPIRV_CONVERSIONS_ENABLED == 1
