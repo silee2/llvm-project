@@ -143,74 +143,18 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
   )
 endif()
 
-if (MLIR_ENABLE_SPIRV_CONVERSIONS)
+if ("SPIRV" IN_LIST LLVM_TARGETS_TO_BUILD)
   set(SPIRV_LIBS
     SPIRVCodeGen
     SPIRVDesc
     SPIRVInfo
   )
-  if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
-    # Two cmake targets LLVMSPIRVLib, SPIRV-Tools-static are needed
-    # and source is fetched if missing.
-    # If any of them needs to be fetched, target SPIRV-Headers is needed
-    # and fetched.
-
-    include(FetchContent)
-    include(CheckCXXCompilerFlag)
-
-    check_cxx_compiler_flag(-Werror HAVE_ERROR)
-
-    if((NOT TARGET SPIRV-Tools-static) OR (NOT TARGET LLVMSPIRVLib))
-      message(STATUS "Fetching SPIRV Headers")
-      FetchContent_Declare(
-        spirv-headers
-        GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
-        GIT_TAG vulkan-sdk-1.3.280.0
-      )
-      FetchContent_MakeAvailable(spirv-headers)
-    endif()
-
-    if(NOT TARGET SPIRV-Tools-static)
-      message(STATUS "Fetching SPIRV Tools")
-      set(SPIRV_SKIP_TESTS ON)
-      set(SPIRV-Headers_SOURCE_DIR ${spirv-headers_SOURCE_DIR})
-      FetchContent_Declare(
-        spirv-tools
-        GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Tools.git
-        GIT_TAG vulkan-sdk-1.3.280.0
-      )
-      FetchContent_MakeAvailable(spirv-tools)
-      if (HAVE_ERROR)
-          target_compile_options(SPIRV-Tools-static PRIVATE -Wno-error)
-      endif()
-    endif()
-
-    if(NOT TARGET LLVMSPIRVLib)
-      message(STATUS "Fetching SPIRV LLVM Translator")
-      set(LLVM_SPIRV_INCLUDE_TESTS OFF)
-      set(LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR ${spirv-headers_SOURCE_DIR})
-      check_cxx_compiler_flag(-Wglobal-constructors HAVE_GLOBAL_CONSTRUCTORS)
-      FetchContent_Declare(
-        spirv-llvm-translator
-        GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
-        GIT_TAG d54f77c5dd695ccd2a4acf657a0fae74c64413d2
-      )
-      FetchContent_MakeAvailable(spirv-llvm-translator)
-      if (HAVE_GLOBAL_CONSTRUCTORS)
-        target_compile_options(LLVMSPIRVLib PRIVATE -Wno-global-constructors)
-      endif()
-      if (HAVE_ERROR)
-        target_compile_options(LLVMSPIRVLib PRIVATE -Wno-error)
-      endif()
-    endif()
-  endif()
 endif()
 
 add_mlir_dialect_library(MLIRSPIRTarget
   SPIR/Target.cpp
 
   LINK_COMPONENTS
-  MCParser
   ${SPIRV_LIBS}
 
   LINK_LIBS PUBLIC
@@ -221,16 +165,3 @@ add_mlir_dialect_library(MLIRSPIRTarget
   MLIRTargetLLVM
   MLIRSPIRToLLVMIRTranslation
   )
-
-if (MLIR_ENABLE_SPIRV_LLVM_TRANSLATOR)
-  get_target_property(_src_dir LLVMSPIRVLib SOURCE_DIR)
-  target_include_directories(MLIRSPIRTarget
-  PRIVATE
-    ${_src_dir}/../../include
-  )
-  target_link_libraries(MLIRSPIRTarget
-  PRIVATE
-    SPIRV-Tools-static
-    LLVMSPIRVLib
-  )
-endif()

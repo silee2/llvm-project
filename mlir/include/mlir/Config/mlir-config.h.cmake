@@ -50,4 +50,8 @@
    and targets. */
 #cmakedefine01 MLIR_ENABLE_ROCM_CONVERSIONS
 
+/* If set, enables SPIR-V-related features in SPIR-V-related transforms, pipelines,
+   and targets. */
+#cmakedefine01 MLIR_ENABLE_SPIRV_CONVERSIONS
+
 #endif

@@ -13,6 +13,7 @@
 
 #include "mlir/Target/LLVM/SPIR/Target.h"
 
+#include "mlir/Config/mlir-config.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/SPIRDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
@@ -30,13 +31,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
-
-#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
-    MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 1
-#include "LLVMSPIRVLib.h"
-#include "LLVMSPIRVOpts.h"
-#include "spirv-tools/libspirv.hpp"
-#endif
 
 #include <cstdlib>
 #include <optional>
@@ -93,11 +87,9 @@ SerializeGPUModuleBase::SerializeGPUModuleBase(
 void SerializeGPUModuleBase::init() {
   static llvm::once_flag initializeBackendOnce;
   llvm::call_once(initializeBackendOnce, []() {
-#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1
-#if MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
+#if MLIR_ENABLE_SPIRV_CONVERSIONS
     const char *argv[] = {"llc", "--spirv-ext=+SPV_INTEL_vector_compute"};
     llvm::cl::ParseCommandLineOptions(2, argv, "SPIR-V backend");
-#endif
     // If the `SPIRV` LLVM target was built, initialize it.
     LLVMInitializeSPIRVTarget();
     LLVMInitializeSPIRVTargetInfo();
@@ -225,8 +217,6 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
   if (targetOptions.getCompilationTarget() == gpu::CompilationTarget::Offload)
     return SerializeGPUModuleBase::moduleToObject(llvmModule);
 
-#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1 &&                                     \
-    MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   std::optional<llvm::TargetMachine *> targetMachine =
       getOrCreateTargetMachine();
   if (!targetMachine) {
@@ -234,12 +224,10 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
                                << triple << ", can't compile with LLVM\n";
     return std::nullopt;
   }
-#endif
 
-#if MLIR_SPIRV_CONVERSIONS_ENABLED == 1
+#if MLIR_ENABLE_SPIRV_CONVERSIONS
   if (targetOptions.getCompilationTarget() ==
       gpu::CompilationTarget::Assembly) {
-#if MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
     // Translate the Module to ISA which is SPIR-V text format.
     std::optional<std::string> serializedISA =
         translateToISA(llvmModule, **targetMachine);
@@ -252,38 +240,9 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
 #undef DEBUG_TYPE
     // Return ISA assembly code if the compilation _target is assembly.
     return SmallVector<char, 0>(serializedISA->begin(), serializedISA->end());
-#else
-    spvtools::SpirvTools spvTool(SPV_ENV_OPENCL_2_0);
-    std::string err;
-    std::ostringstream outStream;
-    SPIRV::TranslatorOpts Opts(SPIRV::VersionNumber::SPIRV_1_4);
-    Opts.enableAllExtensions();
-    Opts.setMemToRegEnabled(true);
-    Opts.setPreserveOCLKernelArgTypeMetadataThroughString(true);
-    Opts.setPreserveAuxData(false);
-    Opts.setSPIRVAllowUnknownIntrinsics({"llvm.genx."});
-    bool Success = writeSpirv(&llvmModule, Opts, outStream, err);
-    if (!Success) {
-      getOperation().emitError()
-          << "Failed translating the module to ISA. " << err;
-      return std::nullopt;
-    }
-    std::string serializedISA;
-    if (!spvTool.Disassemble(
-            reinterpret_cast<const uint32_t *>(outStream.str().data()),
-            outStream.str().size() / sizeof(uint32_t), &serializedISA)) {
-      getOperation().emitError() << "Failed translating the module to ISA.";
-      return std::nullopt;
-    }
-#define DEBUG_TYPE "serialize-spir-to-isa"
-    LLVM_DEBUG({ llvm::dbgs() << serializedISA << "\n"; });
-#undef DEBUG_TYPE
-    return SmallVector<char, 0>(serializedISA.begin(), serializedISA.end());
-#endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   }
 
   if (targetOptions.getCompilationTarget() == gpu::CompilationTarget::Binary) {
-#if MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
     // Translate the Module to ISA binary which is SPIR-V binary format.
     std::optional<std::string> serializedSPIRVBinary =
         translateToSPIRVBinary(llvmModule, **targetMachine);
@@ -297,29 +256,6 @@ SPIRVSerializer::moduleToObject(llvm::Module &llvmModule) {
     // Return ISA assembly code if the compilation target is assembly.
     return SmallVector<char, 0>(serializedSPIRVBinary->begin(),
                                 serializedSPIRVBinary->end());
-#else
-    std::string err;
-    std::ostringstream outStream;
-    SPIRV::TranslatorOpts Opts(SPIRV::VersionNumber::SPIRV_1_4);
-    Opts.enableAllExtensions();
-    Opts.setMemToRegEnabled(true);
-    Opts.setPreserveOCLKernelArgTypeMetadataThroughString(true);
-    Opts.setPreserveAuxData(false);
-    Opts.setSPIRVAllowUnknownIntrinsics({"llvm.genx."});
-
-    bool Success = writeSpirv(&llvmModule, Opts, outStream, err);
-    if (!Success) {
-      getOperation().emitError()
-          << "Failed translating the module to Binary. " << err;
-      return std::nullopt;
-    }
-    std::string serializedSPIRVBinary = outStream.str();
-#define DEBUG_TYPE "serialize-spir-to-binary"
-    LLVM_DEBUG({ llvm::dbgs() << serializedSPIRVBinary << "\n"; });
-#undef DEBUG_TYPE
-    return SmallVector<char, 0>(serializedSPIRVBinary.begin(),
-                                serializedSPIRVBinary.end());
-#endif // MLIR_SPIRV_LLVM_TRANSLATOR_ENABLED == 0
   }
 #endif // MLIR_SPIRV_CONVERSIONS_ENABLED
 
