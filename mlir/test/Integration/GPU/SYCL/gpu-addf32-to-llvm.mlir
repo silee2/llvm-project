@@ -1,3 +1,4 @@
+// REQUIRES: host-supports-spirv
 // RUN: mlir-opt %s -pass-pipeline='builtin.module(spir-attach-target{module=test.* chip=XeHPC ver=v1.0 caps=Kernel},func.func(gpu-async-region),gpu.module(map-memref-spirv-storage-class{client-api=opencl},convert-gpu-to-spir),func.func(llvm-request-c-wrappers),convert-scf-to-cf,convert-cf-to-llvm,convert-arith-to-llvm,convert-math-to-llvm,convert-func-to-llvm,gpu-to-llvm{use-bare-pointers-for-kernels=true},gpu-module-to-binary{format=bin},expand-strided-metadata,lower-affine,finalize-memref-to-llvm,reconcile-unrealized-casts)' \
 // RUN: | mlir-cpu-runner \
 // RUN:   --shared-libs=%mlir_sycl_runtime \
