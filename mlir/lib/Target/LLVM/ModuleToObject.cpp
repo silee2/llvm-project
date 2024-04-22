@@ -43,7 +43,10 @@ ModuleToObject::~ModuleToObject() = default;
 
 Operation &ModuleToObject::getOperation() { return module; }
 
-std::optional<llvm::TargetMachine *> ModuleToObject::createTargetMachine() {
+std::optional<llvm::TargetMachine *>
+ModuleToObject::getOrCreateTargetMachine() {
+  if (targetMachine)
+    return targetMachine.get();
   // Load the target.
   std::string error;
   const llvm::Target *target =
@@ -60,13 +63,6 @@ std::optional<llvm::TargetMachine *> ModuleToObject::createTargetMachine() {
   if (!targetMachine)
     return std::nullopt;
   return targetMachine.get();
-}
-
-std::optional<llvm::TargetMachine *>
-ModuleToObject::getOrCreateTargetMachine() {
-  if (targetMachine)
-    return targetMachine.get();
-  return createTargetMachine();
 }
 
 std::unique_ptr<llvm::Module>
@@ -182,25 +178,6 @@ ModuleToObject::translateToISA(llvm::Module &llvmModule,
 
     if (targetMachine.addPassesToEmitFile(codegenPasses, pstream, nullptr,
                                           llvm::CodeGenFileType::AssemblyFile))
-      return std::nullopt;
-
-    codegenPasses.run(llvmModule);
-  }
-  return stream.str();
-}
-
-std::optional<std::string>
-ModuleToObject::translateToISABinary(llvm::Module &llvmModule,
-                                     llvm::TargetMachine &targetMachine) {
-  std::string targetISA;
-  llvm::raw_string_ostream stream(targetISA);
-
-  { // Drop pstream after this to prevent the ISA from being stuck buffering
-    llvm::buffer_ostream pstream(stream);
-    llvm::legacy::PassManager codegenPasses;
-
-    if (targetMachine.addPassesToEmitFile(codegenPasses, pstream, nullptr,
-                                          llvm::CodeGenFileType::ObjectFile))
       return std::nullopt;
 
     codegenPasses.run(llvmModule);
