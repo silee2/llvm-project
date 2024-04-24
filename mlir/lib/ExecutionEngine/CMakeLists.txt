@@ -397,8 +397,8 @@ if(LLVM_ENABLE_PIC)
       ${MLIR_INCLUDE_DIRS}
     )
 
-    target_link_libraries(mlir_sycl_runtime PRIVATE LevelZero::LevelZero SyclRuntime::SyclRuntime)
+    target_link_libraries(mlir_sycl_runtime PRIVATE SyclRuntime::SyclRuntime)
 
-    set_property(TARGET mlir_sycl_runtime APPEND PROPERTY BUILD_RPATH "${LevelZero_LIBRARIES_DIR}" "${SyclRuntime_LIBRARIES_DIR}")
+    set_property(TARGET mlir_sycl_runtime APPEND PROPERTY BUILD_RPATH "${SyclRuntime_LIBRARIES_DIR}")
   endif()
 endif()

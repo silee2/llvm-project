@@ -38,6 +38,11 @@ else()
         PATHS ${SyclRuntime_LIBRARY_DIR}
         NO_DEFAULT_PATH
         )
+        find_library(OCLLoader_LIBRARY
+        NAMES OpenCL
+        PATHS ${SyclRuntime_LIBRARY_DIR}
+        NO_DEFAULT_PATH
+        )
 endif()
 
 if(SyclRuntime_LIBRARY)
@@ -45,7 +50,7 @@ if(SyclRuntime_LIBRARY)
     if(NOT TARGET SyclRuntime::SyclRuntime)
         add_library(SyclRuntime::SyclRuntime INTERFACE IMPORTED)
         set_target_properties(SyclRuntime::SyclRuntime
-            PROPERTIES INTERFACE_LINK_LIBRARIES "${SyclRuntime_LIBRARY}"
+            PROPERTIES INTERFACE_LINK_LIBRARIES "${SyclRuntime_LIBRARY};${OCLLoader_LIBRARY}"
       )
       set_target_properties(SyclRuntime::SyclRuntime
           PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${SyclRuntime_INCLUDE_DIRS}"
