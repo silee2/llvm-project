@@ -10,11 +10,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <CL/cl.h>
 #include <CL/sycl.hpp>
 #include <cstdio>
 #include <cstdlib>
-#include <level_zero/ze_api.h>
-#include <sycl/ext/oneapi/backend/level_zero.hpp>
 
 #ifdef _WIN32
 #define SYCL_RUNTIME_EXPORT __declspec(dllexport)
@@ -39,36 +38,23 @@ auto catchAll(F &&func) {
   }
 }
 
-#define L0_SAFE_CALL(call)                                                     \
-  {                                                                            \
-    ze_result_t status = (call);                                               \
-    if (status != ZE_RESULT_SUCCESS) {                                         \
-      fprintf(stdout, "L0 error %d\n", status);                                \
-      fflush(stdout);                                                          \
-      abort();                                                                 \
-    }                                                                          \
-  }
-
 } // namespace
 
-static sycl::device getDefaultDevice() {
-  static sycl::device syclDevice;
-  static bool isDeviceInitialised = false;
-  if (!isDeviceInitialised) {
-    auto platformList = sycl::platform::get_platforms();
-    for (const auto &platform : platformList) {
-      auto platformName = platform.get_info<sycl::info::platform::name>();
-      bool isLevelZero = platformName.find("Level-Zero") != std::string::npos;
-      if (!isLevelZero)
-        continue;
+thread_local static int32_t defaultDevice = 0;
 
-      syclDevice = platform.get_devices()[0];
-      isDeviceInitialised = true;
-      return syclDevice;
+static sycl::device getDefaultDevice() {
+  auto platformList = sycl::platform::get_platforms();
+  for (const auto &platform : platformList) {
+    if(platform.get_backend() == sycl::backend::opencl) {
+      auto gpuDevices = platform.get_devices(sycl::info::device_type::gpu);
+      if(gpuDevices.size() > defaultDevice) {
+        return gpuDevices[defaultDevice];
+      } else if(gpuDevices.size() > 0) {
+        throw std::runtime_error("getDefaultDevice failed: Device id exceeds GPU platform gpu count!");
+      }
     }
-    throw std::runtime_error("getDefaultDevice failed");
-  } else
-    return syclDevice;
+  }
+  throw std::runtime_error("getDefaultDevice failed: No GPU platform found!");
 }
 
 static sycl::context getDefaultContext() {
@@ -98,56 +84,30 @@ static void deallocDeviceMemory(sycl::queue *queue, void *ptr) {
   sycl::free(ptr, *queue);
 }
 
-static ze_module_handle_t loadModule(const void *data, size_t dataSize) {
+static cl_program loadModule(const void *data, size_t dataSize) {
   assert(data);
-  ze_module_handle_t zeModule;
-  ze_module_desc_t desc = {ZE_STRUCTURE_TYPE_MODULE_DESC,
-                           nullptr,
-                           ZE_MODULE_FORMAT_IL_SPIRV,
-                           dataSize,
-                           (const uint8_t *)data,
-                           nullptr,
-                           nullptr};
-  auto zeDevice = sycl::get_native<sycl::backend::ext_oneapi_level_zero>(
+  cl_int err = CL_SUCCESS;
+  auto oclDev = sycl::get_native<sycl::backend::opencl>(
       getDefaultDevice());
-  auto zeContext = sycl::get_native<sycl::backend::ext_oneapi_level_zero>(
+  auto oclCtx = sycl::get_native<sycl::backend::opencl>(
       getDefaultContext());
-  L0_SAFE_CALL(zeModuleCreate(zeContext, zeDevice, &desc, &zeModule, nullptr));
-  return zeModule;
+  cl_program oclProgram = clCreateProgramWithIL(oclCtx, data, dataSize, &err);
+  if (err != CL_SUCCESS) {
+    throw std::runtime_error("Failed to load module");
+  }
+  clBuildProgram(oclProgram, 1, &oclDev, nullptr, nullptr, nullptr);
+  return oclProgram;
 }
 
-static sycl::kernel *getKernel(ze_module_handle_t zeModule, const char *name) {
-  assert(zeModule);
+static sycl::kernel *getKernel(cl_program oclProgram, const char *name) {
+  assert(oclProgram);
   assert(name);
-  ze_kernel_handle_t zeKernel;
-  ze_kernel_desc_t desc = {ZE_STRUCTURE_TYPE_KERNEL_DESC, nullptr,
-                           0, // flags
-                           name};
-
-  ze_result_t result = zeKernelCreate(zeModule, &desc, &zeKernel);
-
-  // Check if there are unresolved imports
-  if (result == ZE_RESULT_ERROR_INVALID_MODULE_UNLINKED) {
-    fprintf(stdout, "Unresolved imports!!!\n");
-    fflush(stdout);
-    abort();
+  cl_int err = CL_SUCCESS;
+  cl_kernel oclKernel = clCreateKernel(oclProgram, name, &err);
+  if (err != CL_SUCCESS) {
+    throw std::runtime_error("Failed to create kernel");
   }
-
-  // Check to see if the kernel name was found in the supplied module
-  if (result == ZE_RESULT_ERROR_INVALID_KERNEL_NAME) {
-    fprintf(stdout, "Invalid kernel name: %s !!!\n", name);
-    fflush(stdout);
-    abort();
-  }
-
-  sycl::kernel_bundle<sycl::bundle_state::executable> kernelBundle =
-      sycl::make_kernel_bundle<sycl::backend::ext_oneapi_level_zero,
-                               sycl::bundle_state::executable>(
-          {zeModule}, getDefaultContext());
-
-  auto kernel = sycl::make_kernel<sycl::backend::ext_oneapi_level_zero>(
-      {kernelBundle, zeKernel}, getDefaultContext());
-  return new sycl::kernel(kernel);
+  return new sycl::kernel(sycl::make_kernel<sycl::backend::opencl>(oclKernel, getDefaultContext()));
 }
 
 static void launchKernel(sycl::queue *queue, sycl::kernel *kernel, size_t gridX,
@@ -172,6 +132,8 @@ static void launchKernel(sycl::queue *queue, sycl::kernel *kernel, size_t gridX,
     for (size_t i = 0; i < paramsCount; i++) {
       cgh.set_arg(static_cast<uint32_t>(i), *(static_cast<void **>(params[i])));
     }
+    fprintf(stdout, "After set_arg\n");
+    fflush(stdout);
     cgh.parallel_for(syclNdRange, *kernel);
   });
 }
@@ -206,13 +168,13 @@ extern "C" SYCL_RUNTIME_EXPORT void mgpuMemFree(void *ptr, sycl::queue *queue) {
   });
 }
 
-extern "C" SYCL_RUNTIME_EXPORT ze_module_handle_t
+extern "C" SYCL_RUNTIME_EXPORT cl_program
 mgpuModuleLoad(const void *data, size_t gpuBlobSize) {
   return catchAll([&]() { return loadModule(data, gpuBlobSize); });
 }
 
 extern "C" SYCL_RUNTIME_EXPORT sycl::kernel *
-mgpuModuleGetFunction(ze_module_handle_t module, const char *name) {
+mgpuModuleGetFunction(cl_program module, const char *name) {
   return catchAll([&]() { return getKernel(module, name); });
 }
 
@@ -233,7 +195,7 @@ extern "C" SYCL_RUNTIME_EXPORT void mgpuStreamSynchronize(sycl::queue *queue) {
 }
 
 extern "C" SYCL_RUNTIME_EXPORT void
-mgpuModuleUnload(ze_module_handle_t module) {
+mgpuModuleUnload(cl_program oclProgram) {
 
-  catchAll([&]() { L0_SAFE_CALL(zeModuleDestroy(module)); });
+  catchAll([&]() { clReleaseProgram(oclProgram); });
 }
