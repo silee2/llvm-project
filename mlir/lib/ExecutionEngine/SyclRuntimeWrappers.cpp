@@ -12,6 +12,7 @@
 
 #include <CL/cl.h>
 #include <CL/sycl.hpp>
+#include <backend_types.hpp>
 #include <cstdio>
 #include <cstdlib>
 
@@ -107,6 +108,9 @@ static sycl::kernel *getKernel(cl_program oclProgram, const char *name) {
   if (err != CL_SUCCESS) {
     throw std::runtime_error("Failed to create kernel");
   }
+    auto kernelBundle =
+        sycl::make_kernel_bundle<sycl::backend::opencl, sycl::bundle_state::executable>(
+            oclProgram, getDefaultContext());
   return new sycl::kernel(sycl::make_kernel<sycl::backend::opencl>(oclKernel, getDefaultContext()));
 }
 
