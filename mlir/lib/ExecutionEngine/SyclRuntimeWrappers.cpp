@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <level_zero/ze_api.h>
 #include <sycl/ext/oneapi/backend/level_zero.hpp>
+#include <vector>
 
 #ifdef _WIN32
 #define SYCL_RUNTIME_EXPORT __declspec(dllexport)
@@ -51,29 +52,45 @@ auto catchAll(F &&func) {
 
 } // namespace
 
-static sycl::device getDefaultDevice() {
-  static sycl::device syclDevice;
-  static bool isDeviceInitialised = false;
-  if (!isDeviceInitialised) {
-    auto platformList = sycl::platform::get_platforms();
-    for (const auto &platform : platformList) {
-      auto platformName = platform.get_info<sycl::info::platform::name>();
-      bool isLevelZero = platformName.find("Level-Zero") != std::string::npos;
-      if (!isLevelZero)
-        continue;
+thread_local static int32_t defaultDevice = 0;
+thread_local static bool isGpuPoolInitialized = false;
+thread_local static bool isDefaultContextInitialized = false;
+thread_local static std::vector<sycl::device> gpuPool;
+thread_local static sycl::context defaultContext;
 
-      syclDevice = platform.get_devices()[0];
-      isDeviceInitialised = true;
-      return syclDevice;
+static void initGpuPool() {
+  if (isGpuPoolInitialized)
+    return;
+  auto platformList = sycl::platform::get_platforms();
+  for (const auto &platform : platformList) {
+    if (platform.get_backend() == sycl::backend::ext_oneapi_level_zero) {
+      auto gpuDevices = platform.get_devices(sycl::info::device_type::gpu);
+      if (gpuDevices.empty()) {
+        throw std::runtime_error("SyclRuntime: No GPU devices found!");
+      }
+      gpuPool.assign(gpuDevices.begin(), gpuDevices.end());
+      isGpuPoolInitialized = true;
+      return;
     }
-    throw std::runtime_error("getDefaultDevice failed");
-  } else
-    return syclDevice;
+  }
+  throw std::runtime_error("SyclRuntime: No GPU devices found!");
+}
+
+static sycl::device getDefaultDevice() {
+  initGpuPool();
+  if (defaultDevice > gpuPool.size()) {
+  }
+  return gpuPool[defaultDevice];
 }
 
 static sycl::context getDefaultContext() {
-  static sycl::context syclContext{getDefaultDevice()};
-  return syclContext;
+  if (isDefaultContextInitialized) {
+    return defaultContext;
+  }
+  initGpuPool();
+  defaultContext = sycl::context(gpuPool);
+  isDefaultContextInitialized = true;
+  return defaultContext;
 }
 
 static void *allocDeviceMemory(sycl::queue *queue, size_t size, bool isShared) {
