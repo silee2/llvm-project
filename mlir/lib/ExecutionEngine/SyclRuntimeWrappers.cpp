@@ -76,14 +76,12 @@ static void initGpuPool() {
   throw std::runtime_error("SyclRuntime: No GPU devices found!");
 }
 
-static sycl::device *getDefaultDevice() {
+static sycl::device *getDefaultDevicePtr() {
   initGpuPool();
-  if (defaultDevice > pGpuPool->size()) {
-  }
   return &((*pGpuPool)[defaultDevice]);
 }
 
-static sycl::context *getDefaultContext() {
+static sycl::context *getDefaultContextPtr() {
   if (isDefaultContextInitialized) {
     return pDefaultContext;
   }
@@ -96,11 +94,11 @@ static sycl::context *getDefaultContext() {
 static void *allocDeviceMemory(sycl::queue *queue, size_t size, bool isShared) {
   void *memPtr = nullptr;
   if (isShared) {
-    memPtr = sycl::aligned_alloc_shared(64, size, *getDefaultDevice(),
-                                        *getDefaultContext());
+    memPtr = sycl::aligned_alloc_shared(64, size, *getDefaultDevicePtr(),
+                                        *getDefaultContextPtr());
   } else {
-    memPtr = sycl::aligned_alloc_device(64, size, *getDefaultDevice(),
-                                        *getDefaultContext());
+    memPtr = sycl::aligned_alloc_device(64, size, *getDefaultDevicePtr(),
+                                        *getDefaultContextPtr());
   }
   if (memPtr == nullptr) {
     throw std::runtime_error("mem allocation failed!");
@@ -110,7 +108,7 @@ static void *allocDeviceMemory(sycl::queue *queue, size_t size, bool isShared) {
 
 static void deallocDeviceMemory(sycl::queue *queue, void *ptr) {
   if (queue == nullptr) {
-    queue = new sycl::queue(*getDefaultContext(), *getDefaultDevice());
+    queue = new sycl::queue(*getDefaultContextPtr(), *getDefaultDevicePtr());
   }
   sycl::free(ptr, *queue);
 }
@@ -126,9 +124,9 @@ static ze_module_handle_t loadModule(const void *data, size_t dataSize) {
                            nullptr,
                            nullptr};
   auto zeDevice = sycl::get_native<sycl::backend::ext_oneapi_level_zero>(
-      *getDefaultDevice());
+      *getDefaultDevicePtr());
   auto zeContext = sycl::get_native<sycl::backend::ext_oneapi_level_zero>(
-      *getDefaultContext());
+      *getDefaultContextPtr());
   L0_SAFE_CALL(zeModuleCreate(zeContext, zeDevice, &desc, &zeModule, nullptr));
   return zeModule;
 }
@@ -160,10 +158,10 @@ static sycl::kernel *getKernel(ze_module_handle_t zeModule, const char *name) {
   sycl::kernel_bundle<sycl::bundle_state::executable> kernelBundle =
       sycl::make_kernel_bundle<sycl::backend::ext_oneapi_level_zero,
                                sycl::bundle_state::executable>(
-          {zeModule}, *getDefaultContext());
+          {zeModule}, *getDefaultContextPtr());
 
   auto kernel = sycl::make_kernel<sycl::backend::ext_oneapi_level_zero>(
-      {kernelBundle, zeKernel}, *getDefaultContext());
+      {kernelBundle, zeKernel}, *getDefaultContextPtr());
   return new sycl::kernel(kernel);
 }
 
@@ -199,7 +197,7 @@ extern "C" SYCL_RUNTIME_EXPORT sycl::queue *mgpuStreamCreate() {
 
   return catchAll([&]() {
     sycl::queue *queue =
-        new sycl::queue(*getDefaultContext(), *getDefaultDevice());
+        new sycl::queue(*getDefaultContextPtr(), *getDefaultDevicePtr());
     return queue;
   });
 }
@@ -253,4 +251,12 @@ extern "C" SYCL_RUNTIME_EXPORT void
 mgpuModuleUnload(ze_module_handle_t module) {
 
   catchAll([&]() { L0_SAFE_CALL(zeModuleDestroy(module)); });
+}
+
+extern "C" SYCL_RUNTIME_EXPORT void mgpuSetDefaultDevice(int32_t device) {
+  initGpuPool();
+  if (device >= pGpuPool->size()) {
+    throw std::runtime_error("SyclRuntime: Invalid device index!");
+  }
+  defaultDevice = device;
 }
