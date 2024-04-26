@@ -55,8 +55,8 @@ auto catchAll(F &&func) {
 thread_local static int32_t defaultDevice = 0;
 thread_local static bool isGpuPoolInitialized = false;
 thread_local static bool isDefaultContextInitialized = false;
-thread_local static std::vector<sycl::device> gpuPool;
-thread_local static sycl::context defaultContext;
+thread_local static std::vector<sycl::device> *pGpuPool = nullptr;
+thread_local static sycl::context *pDefaultContext = nullptr;
 
 static void initGpuPool() {
   if (isGpuPoolInitialized)
@@ -68,7 +68,7 @@ static void initGpuPool() {
       if (gpuDevices.empty()) {
         throw std::runtime_error("SyclRuntime: No GPU devices found!");
       }
-      gpuPool.assign(gpuDevices.begin(), gpuDevices.end());
+      pGpuPool = new std::vector<sycl::device>{gpuDevices};
       isGpuPoolInitialized = true;
       return;
     }
@@ -76,31 +76,31 @@ static void initGpuPool() {
   throw std::runtime_error("SyclRuntime: No GPU devices found!");
 }
 
-static sycl::device getDefaultDevice() {
+static sycl::device *getDefaultDevice() {
   initGpuPool();
-  if (defaultDevice > gpuPool.size()) {
+  if (defaultDevice > pGpuPool->size()) {
   }
-  return gpuPool[defaultDevice];
+  return &((*pGpuPool)[defaultDevice]);
 }
 
-static sycl::context getDefaultContext() {
+static sycl::context *getDefaultContext() {
   if (isDefaultContextInitialized) {
-    return defaultContext;
+    return pDefaultContext;
   }
   initGpuPool();
-  defaultContext = sycl::context(gpuPool);
+  pDefaultContext = new sycl::context(*pGpuPool);
   isDefaultContextInitialized = true;
-  return defaultContext;
+  return pDefaultContext;
 }
 
 static void *allocDeviceMemory(sycl::queue *queue, size_t size, bool isShared) {
   void *memPtr = nullptr;
   if (isShared) {
-    memPtr = sycl::aligned_alloc_shared(64, size, getDefaultDevice(),
-                                        getDefaultContext());
+    memPtr = sycl::aligned_alloc_shared(64, size, *getDefaultDevice(),
+                                        *getDefaultContext());
   } else {
-    memPtr = sycl::aligned_alloc_device(64, size, getDefaultDevice(),
-                                        getDefaultContext());
+    memPtr = sycl::aligned_alloc_device(64, size, *getDefaultDevice(),
+                                        *getDefaultContext());
   }
   if (memPtr == nullptr) {
     throw std::runtime_error("mem allocation failed!");
@@ -110,7 +110,7 @@ static void *allocDeviceMemory(sycl::queue *queue, size_t size, bool isShared) {
 
 static void deallocDeviceMemory(sycl::queue *queue, void *ptr) {
   if (queue == nullptr) {
-    queue = new sycl::queue(getDefaultContext(), getDefaultDevice());
+    queue = new sycl::queue(*getDefaultContext(), *getDefaultDevice());
   }
   sycl::free(ptr, *queue);
 }
@@ -126,9 +126,9 @@ static ze_module_handle_t loadModule(const void *data, size_t dataSize) {
                            nullptr,
                            nullptr};
   auto zeDevice = sycl::get_native<sycl::backend::ext_oneapi_level_zero>(
-      getDefaultDevice());
+      *getDefaultDevice());
   auto zeContext = sycl::get_native<sycl::backend::ext_oneapi_level_zero>(
-      getDefaultContext());
+      *getDefaultContext());
   L0_SAFE_CALL(zeModuleCreate(zeContext, zeDevice, &desc, &zeModule, nullptr));
   return zeModule;
 }
@@ -160,10 +160,10 @@ static sycl::kernel *getKernel(ze_module_handle_t zeModule, const char *name) {
   sycl::kernel_bundle<sycl::bundle_state::executable> kernelBundle =
       sycl::make_kernel_bundle<sycl::backend::ext_oneapi_level_zero,
                                sycl::bundle_state::executable>(
-          {zeModule}, getDefaultContext());
+          {zeModule}, *getDefaultContext());
 
   auto kernel = sycl::make_kernel<sycl::backend::ext_oneapi_level_zero>(
-      {kernelBundle, zeKernel}, getDefaultContext());
+      {kernelBundle, zeKernel}, *getDefaultContext());
   return new sycl::kernel(kernel);
 }
 
@@ -199,7 +199,7 @@ extern "C" SYCL_RUNTIME_EXPORT sycl::queue *mgpuStreamCreate() {
 
   return catchAll([&]() {
     sycl::queue *queue =
-        new sycl::queue(getDefaultContext(), getDefaultDevice());
+        new sycl::queue(*getDefaultContext(), *getDefaultDevice());
     return queue;
   });
 }
