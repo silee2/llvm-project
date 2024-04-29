@@ -424,7 +424,11 @@ private:
 
   /// Common section names.
   static StringRef getEHFrameSectionName() { return ".eh_frame"; }
+  static StringRef getEHFrameHdrSectionName() { return ".eh_frame_hdr"; }
   static StringRef getRelaDynSectionName() { return ".rela.dyn"; }
+
+  /// FILE symbol name used for local fragments of global functions.
+  static StringRef getBOLTFileSymbolName() { return "bolt-pseudo.o"; }
 
   /// An instance of the input binary we are processing, externally owned.
   llvm::object::ELFObjectFileBase *InputFile;
@@ -489,6 +493,9 @@ private:
 
   /// Store all non-zero symbols in this map for a quick address lookup.
   std::map<uint64_t, llvm::object::SymbolRef> FileSymRefs;
+
+  /// FILE symbols used for disambiguating split function parents.
+  std::vector<ELFSymbolRef> FileSymbols;
 
   std::unique_ptr<DWARFRewriter> DebugInfoRewriter;
 
