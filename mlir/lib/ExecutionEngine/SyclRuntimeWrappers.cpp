@@ -173,16 +173,7 @@ static void launchKernel(sycl::queue *queue, sycl::kernel *kernel, size_t gridX,
       sycl::range<3>(blockZ * gridZ, blockY * gridY, blockX * gridX);
   auto syclLocalRange = sycl::range<3>(blockZ, blockY, blockX);
   sycl::nd_range<3> syclNdRange(syclGlobalRange, syclLocalRange);
-#if 0
-  fprintf(stdout, "gridX: %d, ", gridX);
-  fprintf(stdout, "gridY: %d, ", gridY);
-  fprintf(stdout, "gridZ: %d, ", gridZ);
-  fprintf(stdout, "blockX: %d, ", blockX);
-  fprintf(stdout, "blockY: %d, ", blockY);
-  fprintf(stdout, "blockZ: %d, ", blockZ);
-  fprintf(stdout, "paramsCount: %d\n", paramsCount);
-  fflush(stdout);
-#endif
+
   queue->submit([&](sycl::handler &cgh) {
     for (size_t i = 0; i < paramsCount; i++) {
       cgh.set_arg(static_cast<uint32_t>(i), *(static_cast<void **>(params[i])));
