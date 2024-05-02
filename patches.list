@@ -1,0 +1,10 @@
+MLIR To Upstream
+1. GPUToSPIRV gpu.lane_id lowering
+2. gpu async region pass GPUAlloc host_shared and matching Dealloc handling
+3. SYCL runtime wrapper set default device handling
+
+LLVM To Upstream
+1. VectorComputeINTEL handling
+
+MLIR To stay downstream
+1. MLIR_ENABLE_SPIRV_CONVERSIONS
