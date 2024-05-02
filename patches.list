@@ -1,7 +1,7 @@
 MLIR To Upstream
-1. GPUToSPIRV gpu.lane_id lowering
-2. gpu async region pass GPUAlloc host_shared and matching Dealloc handling
-3. SYCL runtime wrapper set default device handling
+1. GPUToSPIRV gpu.lane_id lowering : https://github.com/llvm/llvm-project/pull/90873
+2. gpu async region pass GPUAlloc host_shared and matching Dealloc handling : https://github.com/llvm/llvm-project/pull/90876
+3. SYCL runtime wrapper set default device handling : https://github.com/llvm/llvm-project/pull/90878
 
 LLVM To Upstream
 1. VectorComputeINTEL handling
