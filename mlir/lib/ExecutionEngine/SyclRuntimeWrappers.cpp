@@ -122,7 +122,6 @@ static ze_module_handle_t loadModule(const void *data, size_t dataSize) {
 static void memoryCopy(sycl::queue *queue, void *dstPtr, void *srcPtr,
                        size_t size) {
   queue->memcpy(dstPtr, srcPtr, size);
-  queue->wait();
 }
 
 static sycl::kernel *getKernel(ze_module_handle_t zeModule, const char *name) {
