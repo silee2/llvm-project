@@ -77,11 +77,19 @@ static sycl::context getDefaultContext() {
 static void *allocDeviceMemory(sycl::queue *queue, size_t size, bool isShared) {
   void *memPtr = nullptr;
   if (isShared) {
-    memPtr = sycl::aligned_alloc_shared(64, size, getDefaultDevice(),
-                                        getDefaultContext());
+    if (queue) {
+      memPtr = sycl::aligned_alloc_shared(64, size, *queue);
+    } else {
+      memPtr = sycl::aligned_alloc_shared(64, size, getDefaultDevice(),
+                                          getDefaultContext());
+    }
   } else {
-    memPtr = sycl::aligned_alloc_device(64, size, getDefaultDevice(),
-                                        getDefaultContext());
+    if (queue) {
+      memPtr = sycl::aligned_alloc_device(64, size, *queue);
+    } else {
+      memPtr = sycl::aligned_alloc_device(64, size, getDefaultDevice(),
+                                          getDefaultContext());
+    }
   }
   if (memPtr == nullptr) {
     throw std::runtime_error("mem allocation failed!");
@@ -109,6 +117,12 @@ static ze_module_handle_t loadModule(const void *data, size_t dataSize) {
       getDefaultContext());
   L0_SAFE_CALL(zeModuleCreate(zeContext, zeDevice, &desc, &zeModule, nullptr));
   return zeModule;
+}
+
+static void memoryCopy(sycl::queue *queue, void *dstPtr, void *srcPtr,
+                       size_t size) {
+  queue->memcpy(dstPtr, srcPtr, size);
+  queue->wait();
 }
 
 static sycl::kernel *getKernel(ze_module_handle_t zeModule, const char *name) {
@@ -174,6 +188,11 @@ extern "C" SYCL_RUNTIME_EXPORT void mgpuMemFree(void *ptr, sycl::queue *queue) {
       deallocDeviceMemory(queue, ptr);
     }
   });
+}
+
+extern "C" SYCL_RUNTIME_EXPORT void
+mgpuMemcpy(void *dst, void *src, size_t sizeBytes, sycl::queue *queue) {
+  catchAll([&]() { memoryCopy(queue, dst, src, sizeBytes); });
 }
 
 extern "C" SYCL_RUNTIME_EXPORT ze_module_handle_t
