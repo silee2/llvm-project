@@ -85,20 +85,63 @@ def XeGPU_ScatterTensorDescAttr: XeGPU_TensorDescAttr<"ScatterTensorDesc", "scat
 //===----------------------------------------------------------------------===//
 // XeGPU Memory Scope Enums.
 //===----------------------------------------------------------------------===//
-def XeGPU_MemorySpaceGlobal: I32EnumAttrCase<"Global", 0, "global">;
-def XeGPU_MemorySpaceShared: I32EnumAttrCase<"SLM", 3, "slm">;
-def XeGPU_MemorySpace: I32EnumAttr<"MemorySpace",
-      "The address space of the memory the tensor descritor is created for",
-      [XeGPU_MemorySpaceGlobal, XeGPU_MemorySpaceShared]> {
+
+class XeGPU_I32Enum<string name, string description, list<I32EnumAttrCase> cases>
+    : I32EnumAttr<name, description, cases> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::xegpu";
 }
+class XeGPU_I32EnumAttr<string mnemonic, XeGPU_I32Enum enumInfo> :
+    EnumAttr<XeGPU_Dialect, enumInfo, mnemonic> {
+  let assemblyFormat = "$value";
+}
+class XeGPU_MemoryMapI32EnumAttr<string mnemonic, XeGPU_I32Enum enumInfo> :
+    EnumAttr<XeGPU_Dialect, enumInfo, mnemonic> {
+  let assemblyFormat = "`<` $value `,` $cache_policy `>`";
+
+  let parameters = (ins
+    OptionalParameter<"xegpu::MemorySpace">:$value,
+    OptionalParameter<"xegpu::CachePolicy">:$cache_policy,
+    OptionalParameter<"mlir::Attribute">:$mem_map
+  );
+
+  let builders = [
+    AttrBuilder<(ins
+      CArg<"xegpu::MemorySpace", "xegpu::MemorySpace::Global">:$value,
+      CArg<"xegpu::CachePolicy", "xegpu::CachePolicy::UNCACHED">: $cache_policy,
+      CArg<"mlir::Attribute", "mlir::Attribute()">:$mem_map
+    )>,
+    AttrBuilder<(ins
+      CArg<"xegpu::MemorySpace", "xegpu::MemorySpace::Global">:$value,
+      CArg<"xegpu::CachePolicy", "xegpu::CachePolicy::UNCACHED">: $cache_policy
+    )>,
+    AttrBuilder<(ins
+      CArg<"xegpu::MemorySpace", "xegpu::MemorySpace::Global">:$value
+    )>
+  ];
+}
+
+def XeGPU_MemorySpaceGlobal: I32EnumAttrCase<"Global", 0, "global">;
+def XeGPU_MemorySpaceShared: I32EnumAttrCase<"SLM", 3, "slm">;
+def XeGPU_MemorySpaceEnum: XeGPU_I32Enum<"MemorySpace",
+  "The address space of the memory the tensor descritor is created for", [
+    XeGPU_MemorySpaceGlobal,
+    XeGPU_MemorySpaceShared
+  ]>;
 
 def XeGPU_MemorySpaceAttr:
-  EnumAttr<XeGPU_Dialect, XeGPU_MemorySpace, "memory_space"> {
+  XeGPU_I32EnumAttr<"memory_space", XeGPU_MemorySpaceEnum> {
     let summary = [{Describe the location of data described by a `TensorDesc`:
                  Global device memory (`Global`) or Shared local memory (`SLM`).}];
-    let assemblyFormat = "$value";
+}
+def XeGPU_MemorySpaceMapEnum: XeGPU_I32Enum<"MemorySpaceMap",
+  "The address space of the memory the tensor descritor is created for", [
+    XeGPU_MemorySpaceGlobal,
+    XeGPU_MemorySpaceShared
+  ]>;
+def XeGPU_MemorySpaceMapAttr:
+  XeGPU_MemoryMapI32EnumAttr<"memspace_map", XeGPU_MemorySpaceMapEnum> {
+    let summary = [{Describe memory space map.}];
 }
 
 //===----------------------------------------------------------------------===//
