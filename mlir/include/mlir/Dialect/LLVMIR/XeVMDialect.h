@@ -27,7 +27,7 @@ enum class XeVMAddrSpace : uint32_t {
   kGeneric = 4   // OpenCL Generic memory, SPIRV generic
 };
 
-} // namespace imex::xevm
+} // namespace mlir::xevm
 
 #define GET_ATTRDEF_CLASSES
 #include <mlir/Dialect/LLVMIR/XeVMOpsAttributes.h.inc>

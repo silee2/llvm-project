@@ -13,11 +13,11 @@
 #ifndef MLIR_TARGET_LLVM_XEVM_UTILS_H
 #define MLIR_TARGET_LLVM_XEVM_UTILS_H
 
-#include "imex/Dialect/LLVMIR/XeVMDialect.h"
+#include "mlir/Dialect/LLVMIR/XeVMDialect.h"
 #include "mlir/Dialect/GPU/IR/CompilationInterfaces.h"
 #include "mlir/Target/LLVM/ModuleToObject.h"
 
-namespace imex {
+namespace mlir {
 namespace xevm {
 
 /// Base class for all XeVM serializations from GPU modules into binary strings.
@@ -34,6 +34,6 @@ protected:
   XeVMTargetAttr target;
 };
 } // namespace xevm
-} // namespace imex
+} // namespace mlir
 
 #endif // MLIR_TARGET_LLVM_XEVM_UTILS_H

@@ -18,7 +18,7 @@ class DialectRegistry;
 class MLIRContext;
 } // namespace mlir
 
-namespace imex::xevm {
+namespace mlir::xevm {
 /// Registers the `TargetAttrInterface` for the `#xevm.target` attribute in
 /// the given registry.
 void registerXeVMTargetInterfaceExternalModels(mlir::DialectRegistry &registry);
@@ -26,6 +26,6 @@ void registerXeVMTargetInterfaceExternalModels(mlir::DialectRegistry &registry);
 /// Registers the `TargetAttrInterface` for the `#xevm.target` attribute in
 /// the registry associated with the given context.
 void registerXeVMTargetInterfaceExternalModels(mlir::MLIRContext &context);
-} // namespace imex::xevm
+} // namespace mlir::xevm
 
 #endif // MLIR_TARGET_XEVM_TARGET_H

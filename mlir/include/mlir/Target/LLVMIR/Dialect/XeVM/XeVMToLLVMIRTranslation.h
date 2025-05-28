@@ -19,7 +19,7 @@ class DialectRegistry;
 class MLIRContext;
 } // namespace mlir
 
-namespace imex::xevm {
+namespace mlir::xevm {
 /// Register the XeVM dialect and the translation from it to the LLVM IR in the
 /// given registry;
 void registerXeVMDialectTranslation(mlir::DialectRegistry &registry);
@@ -28,6 +28,6 @@ void registerXeVMDialectTranslation(mlir::DialectRegistry &registry);
 /// associated with the given context.
 void registerXeVMDialectTranslation(mlir::MLIRContext &context);
 
-} // namespace imex::xevm
+} // namespace mlir::xevm
 
 #endif // MLIR_TARGET_LLVMIR_DIALECT_XEVM_XEVMTOLLVMIRTRANSLATION_H
