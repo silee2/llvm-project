@@ -123,7 +123,10 @@ module @gemm attributes {gpu.container_module} {
     // CHECK-NEXT: [0,   96,   192,   288,   384,   480,   576,   672,   768,   864,   960,   1056,   1152,   1248,   1344,   1440]
     // CHECK-NEXT: [0,   112,   224,   336,   448,   560,   672,   784,   896,   1008,   1120,   1232,   1344,   1456,   1568,   1680]
 
+    memref.dealloc %A : memref<8x16xf16>
+    memref.dealloc %B : memref<16x16xf16>
     memref.dealloc %C : memref<8x16xf32>
+    memref.dealloc %C_res : memref<8x16xf32>
     return
   }
   func.func private @printMemrefF16(%ptr : memref<*xf16>) attributes { llvm.emit_c_interface }

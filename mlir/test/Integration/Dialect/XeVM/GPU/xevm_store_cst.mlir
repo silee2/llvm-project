@@ -1,5 +1,5 @@
 // RUN: mlir-opt %s \
-// RUN: | mlir-opt -pass-pipeline='builtin.module(cse,gpu.module(xevm-attach-target,convert-gpu-to-llvm-spv{use-64bit-index=true},convert-xevm-to-llvm,cse))' \
+// RUN: | mlir-opt -pass-pipeline='builtin.module(cse,func.func(gpu-async-region),gpu.module(xevm-attach-target,convert-gpu-to-llvm-spv{use-64bit-index=true},convert-xevm-to-llvm,cse))' \
 // RUN: | mlir-opt -convert-scf-to-cf -convert-cf-to-llvm -convert-vector-to-llvm -convert-arith-to-llvm \
 // RUN: | mlir-opt -gpu-to-llvm -reconcile-unrealized-casts -cse -gpu-module-to-binary \
 // RUN: | mlir-runner \
@@ -24,14 +24,18 @@ module @gemm attributes {gpu.container_module} {
   func.func @test(%src : memref<8x16xf32>) -> memref<8x16xf32> attributes {llvm.emit_c_interface} {
     %c1 = arith.constant 1 : index
     %c16 = arith.constant 16 : index
-    %memref_0 = gpu.alloc host_shared () : memref<8x16xf32>
-    memref.copy %src, %memref_0 : memref<8x16xf32> to memref<8x16xf32>
+    %memref_0 = gpu.alloc() : memref<8x16xf32>
+    gpu.memcpy %memref_0, %src : memref<8x16xf32>, memref<8x16xf32>
     %0 = memref.extract_aligned_pointer_as_index %memref_0 : memref<8x16xf32> -> index
     %1 = arith.index_cast %0 : index to i64
     %2 = llvm.inttoptr %1 : i64 to !llvm.ptr
     %src_casted = llvm.addrspacecast %2 : !llvm.ptr to !llvm.ptr<1>
     gpu.launch_func @kernel::@store_constant blocks in (%c1, %c1, %c1) threads in (%c16, %c1, %c1) args(%src_casted : !llvm.ptr<1>)
-    return %memref_0 : memref<8x16xf32>
+    %dst = memref.alloc() : memref<8x16xf32>
+    gpu.memcpy %dst, %memref_0 : memref<8x16xf32>, memref<8x16xf32>
+    gpu.dealloc %memref_0 : memref<8x16xf32>
+
+    return %dst : memref<8x16xf32>
   }
 
   func.func @main() attributes {llvm.emit_c_interface} {
@@ -63,6 +67,7 @@ module @gemm attributes {gpu.container_module} {
     // CHECK-NEXT: [11.11{{.*}}]
 
     memref.dealloc %A : memref<8x16xf32>
+    memref.dealloc %B : memref<8x16xf32>
     return
   }
   func.func private @printMemrefF32(%ptr : memref<*xf32>)
