@@ -29,6 +29,7 @@ set(LIBS
   MLIRTranslateLib
   MLIRVectorDialect
   MLIRVectorToLLVMPass
+  MLIRXeVMToLLVMIRTranslation
   )
 
 add_mlir_library(MLIRGPUTestPasses

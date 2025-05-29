@@ -103,17 +103,15 @@ private:
 };
 } // namespace
 
-namespace mlir::xevm {
-void registerXeVMDialectTranslation(DialectRegistry &registry) {
-  registry.insert<XeVMDialect>();
-  registry.addExtension(+[](MLIRContext *ctx, XeVMDialect *dialect) {
+void ::mlir::registerXeVMDialectTranslation(::mlir::DialectRegistry &registry) {
+  registry.insert<xevm::XeVMDialect>();
+  registry.addExtension(+[](MLIRContext *ctx, xevm::XeVMDialect *dialect) {
     dialect->addInterfaces<XeVMDialectLLVMIRTranslationInterface>();
   });
 }
 
-void registerXeVMDialectTranslation(MLIRContext &context) {
+void ::mlir::registerXeVMDialectTranslation(::mlir::MLIRContext &context) {
   DialectRegistry registry;
   registerXeVMDialectTranslation(registry);
   context.appendDialectRegistry(registry);
 }
-} // namespace mlir::xevm

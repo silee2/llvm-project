@@ -233,6 +233,7 @@ add_mlir_dialect_library(MLIRXeVMTarget
   MLIRSupport
   MLIRGPUDialect
   MLIRTargetLLVM
+  MLIRXeVMToLLVMIRTranslation
 )
 
 # Ensure SPIRV headers are included. Warning: references build directory!

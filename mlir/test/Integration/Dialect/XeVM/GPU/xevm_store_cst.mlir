@@ -1,5 +1,5 @@
 // RUN: mlir-opt %s \
-// RUN: | mlir-opt -pass-pipeline='builtin.module(cse,gpu.module(xevm-attach-target,convert-gpu-to-llvm-spv{use-64bit-index=true},convert-xevm-to-llvm,cse)' \
+// RUN: | mlir-opt -pass-pipeline='builtin.module(cse,gpu.module(xevm-attach-target,convert-gpu-to-llvm-spv{use-64bit-index=true},convert-xevm-to-llvm,cse))' \
 // RUN: | mlir-opt -convert-scf-to-cf -convert-cf-to-llvm -convert-vector-to-llvm -convert-arith-to-llvm \
 // RUN: | mlir-opt -gpu-to-llvm -reconcile-unrealized-casts -cse -gpu-module-to-binary \
 // RUN: | mlir-runner \
