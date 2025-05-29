@@ -1,5 +1,5 @@
 // RUN: mlir-opt %s \
-// RUN: | mlir-opt -pass-pipeline='builtin.module(cse,gpu.module(xevm-attach-target,convert-gpu-to-llvm-spv{use-64bit-index=true},convert-xevm-to-llvm,cse))' \
+// RUN: | mlir-opt -pass-pipeline='builtin.module(cse,func.func(gpu-async-region),gpu.module(xevm-attach-target,convert-gpu-to-llvm-spv{use-64bit-index=true},convert-xevm-to-llvm,cse))' \
 // RUN: | mlir-opt -convert-scf-to-cf -convert-cf-to-llvm -convert-vector-to-llvm -convert-arith-to-llvm \
 // RUN: | mlir-opt -gpu-to-llvm -reconcile-unrealized-casts -cse -gpu-module-to-binary \
 // RUN: | mlir-runner \
@@ -47,29 +47,34 @@ module @gemm attributes {gpu.container_module} {
     %c1 = arith.constant 1 : index
     %c16 = arith.constant 16 : index
 
-    %memref_a = gpu.alloc host_shared () : memref<8x16xf16>
-    memref.copy %a, %memref_a : memref<8x16xf16> to memref<8x16xf16>
+    %memref_a = gpu.alloc() : memref<8x16xf16>
+    gpu.memcpy %memref_a, %a : memref<8x16xf16>, memref<8x16xf16>
     %a_ptr_as_idx = memref.extract_aligned_pointer_as_index %memref_a : memref<8x16xf16> -> index
     %a_ptr_as_i64 = arith.index_cast %a_ptr_as_idx : index to i64
     %a_ptr = llvm.inttoptr %a_ptr_as_i64 : i64 to !llvm.ptr
     %a_ptr_casted = llvm.addrspacecast %a_ptr : !llvm.ptr to !llvm.ptr<1>
 
-    %memref_b = gpu.alloc host_shared () : memref<16x16xf16>
-    memref.copy %b, %memref_b : memref<16x16xf16> to memref<16x16xf16>
+    %memref_b = gpu.alloc() : memref<16x16xf16>
+    gpu.memcpy %memref_b, %b : memref<16x16xf16>, memref<16x16xf16>
     %b_ptr_as_idx = memref.extract_aligned_pointer_as_index %memref_b : memref<16x16xf16> -> index
     %b_ptr_as_i64 = arith.index_cast %b_ptr_as_idx : index to i64
     %b_ptr = llvm.inttoptr %b_ptr_as_i64 : i64 to !llvm.ptr
     %b_ptr_casted = llvm.addrspacecast %b_ptr : !llvm.ptr to !llvm.ptr<1>
 
-    %memref_c = gpu.alloc host_shared () : memref<8x16xf32>
-    memref.copy %c, %memref_c : memref<8x16xf32> to memref<8x16xf32>
+    %memref_c = gpu.alloc() : memref<8x16xf32>
+    gpu.memcpy %memref_c, %c : memref<8x16xf32>, memref<8x16xf32>
     %c_ptr_as_idx = memref.extract_aligned_pointer_as_index %memref_c : memref<8x16xf32> -> index
     %c_ptr_as_i64 = arith.index_cast %c_ptr_as_idx : index to i64
     %c_ptr = llvm.inttoptr %c_ptr_as_i64 : i64 to !llvm.ptr
     %c_ptr_casted = llvm.addrspacecast %c_ptr : !llvm.ptr to !llvm.ptr<1>
 
     gpu.launch_func @kernel::@block_dpas blocks in (%c1, %c1, %c1) threads in (%c16, %c1, %c1) args(%a_ptr_casted : !llvm.ptr<1>, %b_ptr_casted : !llvm.ptr<1>, %c_ptr_casted : !llvm.ptr<1>)
-    return %memref_c : memref<8x16xf32>
+    gpu.dealloc %memref_a : memref<8x16xf16>
+    gpu.dealloc %memref_b : memref<16x16xf16>
+    %res = memref.alloc() : memref<8x16xf32>
+    gpu.memcpy %res, %memref_c : memref<8x16xf32>, memref<8x16xf32>
+    gpu.dealloc %memref_c : memref<8x16xf32>
+    return %res : memref<8x16xf32>
   }
 
   func.func @main() attributes {llvm.emit_c_interface} {
@@ -118,6 +123,7 @@ module @gemm attributes {gpu.container_module} {
     // CHECK-NEXT: [0,   96,   192,   288,   384,   480,   576,   672,   768,   864,   960,   1056,   1152,   1248,   1344,   1440]
     // CHECK-NEXT: [0,   112,   224,   336,   448,   560,   672,   784,   896,   1008,   1120,   1232,   1344,   1456,   1568,   1680]
 
+    memref.dealloc %C : memref<8x16xf32>
     return
   }
   func.func private @printMemrefF16(%ptr : memref<*xf16>) attributes { llvm.emit_c_interface }
