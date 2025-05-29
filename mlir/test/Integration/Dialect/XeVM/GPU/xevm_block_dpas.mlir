@@ -1,8 +1,13 @@
-// XFAIL: *
-// RUN: %python_executable %imex_runner --requires=l0-runtime,spirv-backend -i %s --pass-pipeline-file=%p/xevm-to-llvm.pp \
-// RUN:                                       --runner imex-cpu-runner -e main \
-// RUN:                                       --entry-point-result=void \
-// RUN:                                       --shared-libs=%irunner_utils,%mlir_runner_utils,%mlir_c_runner_utils,%levelzero_runtime --filecheck
+// RUN: mlir-opt %s \
+// RUN: | mlir-opt -pass-pipeline='builtin.module(cse,gpu.module(xevm-attach-target,convert-gpu-to-llvm-spv{use-64bit-index=true},convert-xevm-to-llvm,cse))' \
+// RUN: | mlir-opt -convert-scf-to-cf -convert-cf-to-llvm -convert-vector-to-llvm -convert-arith-to-llvm \
+// RUN: | mlir-opt -gpu-to-llvm -reconcile-unrealized-casts -cse -gpu-module-to-binary \
+// RUN: | mlir-runner \
+// RUN:   --shared-libs=%mlir_sycl_runtime \
+// RUN:   --shared-libs=%mlir_runner_utils \
+// RUN:   --shared-libs=%mlir_c_runner_utils \
+// RUN:   --entry-point-result=void \
+// RUN: | FileCheck %s
 
 module @gemm attributes {gpu.container_module} {
   gpu.module @kernel {
