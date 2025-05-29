@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#include "mlir/Dialect/LLVMIR/XeVMDialect.h"
 #include "mlir/Dialect/GPU/IR/CompilationInterfaces.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -12,7 +13,6 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MathExtras.h"
-#include "mlir/Dialect/LLVMIR/XeVMDialect.h"
 
 using namespace mlir;
 using namespace mlir::xevm;
@@ -23,7 +23,8 @@ using namespace mlir::xevm;
 namespace {
 constexpr uint32_t subgroupSize = 16;
 
-template <typename Op> LogicalResult verifyMatrixInput(Op op) {
+template <typename Op>
+LogicalResult verifyMatrixInput(Op op) {
   static_assert(llvm::is_one_of<Op, BlockLoad2dOp, BlockStore2dOp,
                                 BlockPrefetch2dOp>::value,
                 "Unexpected template parameter");

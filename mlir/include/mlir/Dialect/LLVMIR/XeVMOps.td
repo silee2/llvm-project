@@ -36,8 +36,8 @@ class XeVM_Attr<string attrName, string attrMnemonic, list<Trait> traits = []>
   let mnemonic = attrMnemonic;
 }
 
-class XeVM_Op<string mnemonic, list<Trait> traits = []> :
-  Op<XeVM_Dialect, mnemonic, traits>;
+class XeVM_Op<string mnemonic, list<Trait> traits = []>
+    : Op<XeVM_Dialect, mnemonic, traits>;
 
 def XeVM_ElemType : AnyTypeOf<[AnyI8, AnyI16, AnyI32, F32, F16, BF16]>;
 
@@ -53,10 +53,10 @@ def XeVM_LoadCacheControl : I32EnumAttr<"LoadCacheControl", "XeVM load ops cache
   let genSpecializedAttr = 0;
 }
 
-def XeVM_LoadCacheControlAttr:
-  EnumAttr<XeVM_Dialect, XeVM_LoadCacheControl, "load_cache_control"> {
-    let summary = [{ }];
-    let assemblyFormat = "$value";
+def XeVM_LoadCacheControlAttr
+    : EnumAttr<XeVM_Dialect, XeVM_LoadCacheControl, "load_cache_control"> {
+  let summary = [{ }];
+  let assemblyFormat = "$value";
 }
 
 def XeVM_StoreCacheControl : I32EnumAttr<"StoreCacheControl", "XeVM store ops cache control",
@@ -71,30 +71,26 @@ def XeVM_StoreCacheControl : I32EnumAttr<"StoreCacheControl", "XeVM store ops ca
   let genSpecializedAttr = 0;
 }
 
-def XeVM_StoreCacheControlAttr:
-  EnumAttr<XeVM_Dialect, XeVM_StoreCacheControl, "store_cache_control"> {
-    let summary = [{ }];
-    let assemblyFormat = "$value";
+def XeVM_StoreCacheControlAttr
+    : EnumAttr<XeVM_Dialect, XeVM_StoreCacheControl, "store_cache_control"> {
+  let summary = [{ }];
+  let assemblyFormat = "$value";
 }
 
-def XeVM_BlockLoad2dOp : XeVM_Op<"blockload2d">,
-  Results<(outs FixedVectorOfRankAndType<[1,2,3], [XeVM_ElemType]>:$res)>,
-  Arguments<(ins
-    Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr,
-    I32:$base_width,
-    I32:$base_height,
-    I32:$base_pitch,
-    I32:$x,
-    I32:$y,
-    I32Attr:$elem_size_in_bits,
-    I32Attr:$tile_width,
-    I32Attr:$tile_height,
-    I32Attr:$v_blocks,
-    I1Attr:$transpose,
-    I1Attr:$vnni_transform,
-    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l1_cache_control,
-    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l3_cache_control
-  )> {
+def XeVM_BlockLoad2dOp
+    : XeVM_Op<"blockload2d">,
+      Results<(outs FixedVectorOfRankAndType<[1, 2, 3], [XeVM_ElemType]>:$res)>,
+      Arguments<(
+          ins Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr, I32:$base_width,
+          I32:$base_height, I32:$base_pitch, I32:$x, I32:$y,
+          I32Attr:$elem_size_in_bits, I32Attr:$tile_width, I32Attr:$tile_height,
+          I32Attr:$v_blocks, I1Attr:$transpose, I1Attr:$vnni_transform,
+          DefaultValuedAttr<
+              XeVM_LoadCacheControlAttr,
+              "::mlir::xevm::LoadCacheControl::DEFAULT">:$l1_cache_control,
+          DefaultValuedAttr<
+              XeVM_LoadCacheControlAttr,
+              "::mlir::xevm::LoadCacheControl::DEFAULT">:$l3_cache_control)> {
 
   let summary = "2D block load";
 
@@ -143,22 +139,20 @@ def XeVM_BlockLoad2dOp : XeVM_Op<"blockload2d">,
   let hasVerifier = 1;
 }
 
-def XeVM_BlockStore2dOp : XeVM_Op<"blockstore2d">,
-  Arguments<(ins
-    Arg<LLVM_AnyPointer, "", [MemWrite]>:$ptr,
-    I32:$base_width,
-    I32:$base_height,
-    I32:$base_pitch,
-    I32:$x,
-    I32:$y,
-    I32Attr:$elem_size_in_bits,
-    I32Attr:$tile_width,
-    I32Attr:$tile_height,
-    DefaultValuedAttr<I32Attr, "1">:$v_blocks,
-    FixedVectorOfRankAndType<[1, 2, 3], [XeVM_ElemType]>:$stored_val,
-    DefaultValuedAttr<XeVM_StoreCacheControlAttr, "::mlir::xevm::StoreCacheControl::DEFAULT">:$l1_cache_control,
-    DefaultValuedAttr<XeVM_StoreCacheControlAttr, "::mlir::xevm::StoreCacheControl::DEFAULT">:$l3_cache_control
-  )> {
+def XeVM_BlockStore2dOp
+    : XeVM_Op<"blockstore2d">,
+      Arguments<(
+          ins Arg<LLVM_AnyPointer, "", [MemWrite]>:$ptr, I32:$base_width,
+          I32:$base_height, I32:$base_pitch, I32:$x, I32:$y,
+          I32Attr:$elem_size_in_bits, I32Attr:$tile_width, I32Attr:$tile_height,
+          DefaultValuedAttr<I32Attr, "1">:$v_blocks,
+          FixedVectorOfRankAndType<[1, 2, 3], [XeVM_ElemType]>:$stored_val,
+          DefaultValuedAttr<
+              XeVM_StoreCacheControlAttr,
+              "::mlir::xevm::StoreCacheControl::DEFAULT">:$l1_cache_control,
+          DefaultValuedAttr<
+              XeVM_StoreCacheControlAttr,
+              "::mlir::xevm::StoreCacheControl::DEFAULT">:$l3_cache_control)> {
 
   let summary = "2D block store";
 
@@ -202,14 +196,13 @@ def XeVM_BlockStore2dOp : XeVM_Op<"blockstore2d">,
   let hasVerifier = 1;
 }
 
-def XeVM_MemoryScope : I32EnumAttr<"MemoryScope", "Memory scope for memory operations",
-    [
-      I32EnumAttrCase<"WORKGROUP", 0, "workgroup">,
-      I32EnumAttrCase<"LOCAL", 1, "local">,
-      I32EnumAttrCase<"TILE", 2, "tile">,
-      I32EnumAttrCase<"GPU", 3, "gpu">,
-      I32EnumAttrCase<"SYSTEM", 4, "system">
-    ]>{
+def XeVM_MemoryScope
+    : I32EnumAttr<"MemoryScope", "Memory scope for memory operations",
+                  [I32EnumAttrCase<"WORKGROUP", 0, "workgroup">,
+                   I32EnumAttrCase<"LOCAL", 1, "local">,
+                   I32EnumAttrCase<"TILE", 2, "tile">,
+                   I32EnumAttrCase<"GPU", 3, "gpu">,
+                   I32EnumAttrCase<"SYSTEM", 4, "system">]> {
   let cppNamespace = "mlir::xevm";
 }
 
@@ -224,11 +217,11 @@ def XeVM_AddrSpace : I32EnumAttr<"OclAddrSpace", "Address spaces in OpenCL",
   let cppNamespace = "mlir::xevm";
 }
 
-def XeVM_MemfenceOp : XeVM_Op<"memfence">,
-  Arguments<(ins
-    XeVM_MemoryScope:$scope,
-    DefaultValuedAttr<XeVM_AddrSpace, "mlir::xevm::OclAddrSpace::kGeneric"> :$addrspace
-  )> {
+def XeVM_MemfenceOp
+    : XeVM_Op<"memfence">,
+      Arguments<(ins XeVM_MemoryScope:$scope,
+          DefaultValuedAttr<XeVM_AddrSpace,
+                            "mlir::xevm::OclAddrSpace::kGeneric">:$addrspace)> {
   let summary = "Work-item's memory fence.";
   let description = [{
     This operation ensures that all prior memory accesses of this
@@ -239,16 +232,21 @@ def XeVM_MemfenceOp : XeVM_Op<"memfence">,
     $addrspace - specify the address space of work-item's memory accesses
                 to be affected by the fence.
   }];
-  let assemblyFormat = [{`addrspace` `=` $addrspace `,` `scope` `=` $scope attr-dict}];
+  let assemblyFormat =
+      [{`addrspace` `=` $addrspace `,` `scope` `=` $scope attr-dict}];
 }
 
-def XeVM_PrefetchOp : XeVM_Op<"prefetch">,
-  Arguments<(ins
-    Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr,
-    XeVM_AddrSpace:$addrspace,
-    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l1_cache_control,
-    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l3_cache_control
-  )> {
+def XeVM_PrefetchOp
+    : XeVM_Op<"prefetch">,
+      Arguments<(
+          ins Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr,
+          XeVM_AddrSpace:$addrspace,
+          DefaultValuedAttr<
+              XeVM_LoadCacheControlAttr,
+              "::mlir::xevm::LoadCacheControl::DEFAULT">:$l1_cache_control,
+          DefaultValuedAttr<
+              XeVM_LoadCacheControlAttr,
+              "::mlir::xevm::LoadCacheControl::DEFAULT">:$l3_cache_control)> {
   let summary = "Prefetch data into a cache subsystem.";
   let description = [{
     Work-item issues a prefetch from global memory to L1/L3 cache:
@@ -264,21 +262,19 @@ def XeVM_PrefetchOp : XeVM_Op<"prefetch">,
   // let hasVerifier = 1;
 }
 
-def XeVM_BlockPrefetch2dOp : XeVM_Op<"blockprefetch2d">,
-  Arguments<(ins
-    Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr,
-    I32:$base_width,
-    I32:$base_height,
-    I32:$base_pitch,
-    I32:$x,
-    I32:$y,
-    I32Attr:$elem_size_in_bits,
-    I32Attr:$tile_width,
-    I32Attr:$tile_height,
-    I32Attr:$v_blocks,
-    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l1_cache_control,
-    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l3_cache_control
-  )> {
+def XeVM_BlockPrefetch2dOp
+    : XeVM_Op<"blockprefetch2d">,
+      Arguments<(
+          ins Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr, I32:$base_width,
+          I32:$base_height, I32:$base_pitch, I32:$x, I32:$y,
+          I32Attr:$elem_size_in_bits, I32Attr:$tile_width, I32Attr:$tile_height,
+          I32Attr:$v_blocks,
+          DefaultValuedAttr<
+              XeVM_LoadCacheControlAttr,
+              "::mlir::xevm::LoadCacheControl::DEFAULT">:$l1_cache_control,
+          DefaultValuedAttr<
+              XeVM_LoadCacheControlAttr,
+              "::mlir::xevm::LoadCacheControl::DEFAULT">:$l3_cache_control)> {
 
   let summary = "2D block prefetch";
 
@@ -319,34 +315,27 @@ def XeVM_BlockPrefetch2dOp : XeVM_Op<"blockprefetch2d">,
 def XeVM_MatrixElemType : AnyTypeOf<[AnyI8, AnyI16, AnyI32, F32, F16, BF16]>;
 
 /// Enum attribute of the different precision types.
-def XeVM_PrecisionTypeAttr : I32EnumAttr<"PrecisionType",
-  "XeVM precision type",
-  [
-    I32EnumAttrCase<"UNUSED", 0,  "unused">,
-    I32EnumAttrCase<"U8",     1,  "u8">,
-    I32EnumAttrCase<"U4",     2,  "u4">,
-    I32EnumAttrCase<"U2",     3,  "u2">,
-    I32EnumAttrCase<"S8",     4,  "i8">,
-    I32EnumAttrCase<"S4",     5,  "i4">,
-    I32EnumAttrCase<"S2",     6,  "i2">,
-    I32EnumAttrCase<"BF8",    7,  "bf8">,
-    I32EnumAttrCase<"TF32",   8,  "tf32">,
-    I32EnumAttrCase<"BF16",   9,  "bf16">,
-    I32EnumAttrCase<"FP16",   10, "f16">
-  ]> {
+def XeVM_PrecisionTypeAttr
+    : I32EnumAttr<
+          "PrecisionType", "XeVM precision type",
+          [I32EnumAttrCase<"UNUSED", 0, "unused">,
+           I32EnumAttrCase<"U8", 1, "u8">, I32EnumAttrCase<"U4", 2, "u4">,
+           I32EnumAttrCase<"U2", 3, "u2">, I32EnumAttrCase<"S8", 4, "i8">,
+           I32EnumAttrCase<"S4", 5, "i4">, I32EnumAttrCase<"S2", 6, "i2">,
+           I32EnumAttrCase<"BF8", 7, "bf8">, I32EnumAttrCase<"TF32", 8, "tf32">,
+           I32EnumAttrCase<"BF16", 9, "bf16">,
+           I32EnumAttrCase<"FP16", 10, "f16">]> {
   let cppNamespace = "::mlir::xevm";
 }
 
-def XeVM_DpasOp : XeVM_Op<"dpas">,
-  Results<(outs FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$d)>,
-  Arguments<(ins
-    FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$c,
-    FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$a,
-    FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$b,
-    XeVM_PrecisionTypeAttr:$pa,
-    XeVM_PrecisionTypeAttr:$pb,
-    I32Attr:$rc
-  )> {
+def XeVM_DpasOp
+    : XeVM_Op<"dpas">,
+      Results<(outs FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$d)>,
+      Arguments<(ins FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$c,
+          FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$a,
+          FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$b,
+          XeVM_PrecisionTypeAttr:$pa, XeVM_PrecisionTypeAttr:$pb,
+          I32Attr:$rc)> {
 
   let summary = "Matrix multiply-add";
 
@@ -392,7 +381,6 @@ def XeVM_DpasOp : XeVM_Op<"dpas">,
   // let hasVerifier = 1;
 }
 
-
 //===----------------------------------------------------------------------===//
 // XeVM target attribute.
 //===----------------------------------------------------------------------===//
@@ -411,25 +399,28 @@ def XeVM_TargetAttr : XeVM_Attr<"XeVMTarget", "target"> {
       }
     ```
   }];
-  let parameters = (ins
-    DefaultValuedParameter<"int", "2", "Optimization level to apply.">:$O,
-    StringRefParameter<"Target triple.", "\"spirv64-unknown-unknown\"">:$triple,
-    StringRefParameter<"Target chip.", "\"pvc\"">:$chip,
-    OptionalParameter<"::mlir::DictionaryAttr", "Target specific flags.">:$flags,
-    OptionalParameter<"::mlir::ArrayAttr", "Files to link to the LLVM module.">:$linkFiles
-  );
+  let parameters =
+      (ins DefaultValuedParameter<"int", "2",
+                                  "Optimization level to apply.">:$O,
+          StringRefParameter<"Target triple.",
+                             "\"spirv64-unknown-unknown\"">:$triple,
+          StringRefParameter<"Target chip.", "\"pvc\"">:$chip,
+          OptionalParameter<"::mlir::DictionaryAttr",
+                            "Target specific flags.">:$flags,
+          OptionalParameter<"::mlir::ArrayAttr",
+                            "Files to link to the LLVM module.">:$linkFiles);
   let assemblyFormat = [{
     (`<` struct($O, $triple, $chip, $flags, $linkFiles)^ `>`)?
   }];
-  let builders = [
-    AttrBuilder<(ins CArg<"int", "2">:$optLevel,
-                     CArg<"::llvm::StringRef", "\"spirv64-unknown-unknown\"">:$triple,
-                     CArg<"::llvm::StringRef", "\"pvc\"">:$chip,
-                     CArg<"::mlir::DictionaryAttr", "nullptr">:$targetFlags,
-                     CArg<"::mlir::ArrayAttr", "nullptr">:$linkFiles), [{
+  let builders = [AttrBuilder<
+      (ins CArg<"int", "2">:$optLevel,
+          CArg<"::llvm::StringRef", "\"spirv64-unknown-unknown\"">:$triple,
+          CArg<"::llvm::StringRef", "\"pvc\"">:$chip,
+          CArg<"::mlir::DictionaryAttr", "nullptr">:$targetFlags,
+          CArg<"::mlir::ArrayAttr", "nullptr">:$linkFiles),
+      [{
       return Base::get($_ctxt, optLevel, triple, chip, targetFlags, linkFiles);
-    }]>
-  ];
+    }]>];
   let skipDefaultBuilders = 1;
   let genVerifyDecl = 1;
 }
