@@ -1511,10 +1511,10 @@ def ConvertXeVMToLLVMPass : Pass<"convert-xevm-to-llvm"> {
 def ConvertXeGPUToXeVMPass : Pass<"convert-xegpu-to-xevm"> {
   let summary = "Convert XeGPU to XeVM dialect";
   let dependentDialects = [
-    "::imex::xevm::XeVMDialect",
-    "::mlir::vector::VectorDialect",
-    "::mlir::memref::MemRefDialect",
-    "::mlir::arith::ArithDialect",
+    "xevm::XeVMDialect",
+    "vector::VectorDialect",
+    "memref::MemRefDialect",
+    "arith::ArithDialect",
   ];
 }
 

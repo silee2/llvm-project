@@ -48,9 +48,9 @@ enum class NdDescI32Layout : uint32_t {
 static int32_t getNumericXeVMAddrSpace(xegpu::MemorySpace xeGpuMemspace) {
   switch (xeGpuMemspace) {
   case xegpu::MemorySpace::Global:
-    return static_cast<int>(imex::xevm::XeVMAddrSpace::kGlobal);
+    return static_cast<int>(xevm::AddrSpace::GLOBAL);
   case xegpu::MemorySpace::SLM:
-    return static_cast<int>(imex::xevm::XeVMAddrSpace::kShared);
+    return static_cast<int>(xevm::AddrSpace::SHARED);
   }
   llvm_unreachable("Unknown XeGPU memory space.");
 }
@@ -79,34 +79,71 @@ mlir::VectorType encodeVectorTypeTo(mlir::VectorType currentVecType,
 }
 
 xevm::LoadCacheControl
-translateLoadXeGPUCacheHint(std::optional<xegpu::CachePolicy> hint) {
-  auto hintVal = hint.has_value() ? hint.value() : xegpu::CachePolicy::UNCACHED;
-  switch (hintVal) {
+translateLoadXeGPUCacheHint(std::optional<xegpu::CachePolicy> L1hint, std::optional<xegpu::CachePolicy> L3hint) {
+  auto L1hintVal = L1hint.has_value() ? L1hint.value() : xegpu::CachePolicy::UNCACHED;
+  auto L3hintVal = L3hint.has_value() ? L3hint.value() : xegpu::CachePolicy::UNCACHED;
+  switch (L1hintVal) {
   case xegpu::CachePolicy::CACHED:
-    return xevm::LoadCacheControl::C;
+    if (L3hintVal == xegpu::CachePolicy::CACHED)
+      return xevm::LoadCacheControl::L1C_L2UC_L3C;
+    else if (L3hintVal == xegpu::CachePolicy::UNCACHED)
+      return xevm::LoadCacheControl::L1C_L2UC_L3UC;
+    else
+      llvm_unreachable("Unsupported cache control.");
   case xegpu::CachePolicy::UNCACHED:
-    return xevm::LoadCacheControl::UC;
+    if (L3hintVal == xegpu::CachePolicy::CACHED)
+      return xevm::LoadCacheControl::L1UC_L2UC_L3C;
+    else if (L3hintVal == xegpu::CachePolicy::UNCACHED)
+      return xevm::LoadCacheControl::L1UC_L2UC_L3UC;
+    else
+      llvm_unreachable("Unsupported cache control.");
   case xegpu::CachePolicy::STREAMING:
-    return xevm::LoadCacheControl::S;
+    if (L3hintVal == xegpu::CachePolicy::CACHED)
+      return xevm::LoadCacheControl::L1S_L2UC_L3C;
+    else if (L3hintVal == xegpu::CachePolicy::UNCACHED)
+      return xevm::LoadCacheControl::L1S_L2UC_L3UC;
+    else
+      llvm_unreachable("Unsupported cache control.");
   case xegpu::CachePolicy::READ_INVALIDATE:
-    return xevm::LoadCacheControl::IAR;
+    return xevm::LoadCacheControl::INVALIDATE_READ;
   default:
     llvm_unreachable("Unsupported cache control.");
   }
 }
 
-imex::xevm::StoreCacheControl
-translateStoreXeGPUCacheHint(std::optional<xegpu::CachePolicy> hint) {
-  auto hintVal = hint.has_value() ? hint.value() : xegpu::CachePolicy::UNCACHED;
-  switch (hintVal) {
+xevm::StoreCacheControl
+translateStoreXeGPUCacheHint(std::optional<xegpu::CachePolicy> L1hint, std::optional<xegpu::CachePolicy> L3hint) {
+  auto L1hintVal = L1hint.has_value() ? L1hint.value() : xegpu::CachePolicy::UNCACHED;
+  auto L3hintVal = L3hint.has_value() ? L3hint.value() : xegpu::CachePolicy::UNCACHED;
+  switch (L1hintVal) {
   case xegpu::CachePolicy::UNCACHED:
-    return xevm::StoreCacheControl::UC;
+    if (L3hintVal == xegpu::CachePolicy::UNCACHED)
+      return xevm::StoreCacheControl::L1UC_L2UC_L3UC;
+    else if(L3hintVal == xegpu::CachePolicy::WRITE_BACK)
+      return xevm::StoreCacheControl::L1UC_L2UC_L3WB;
+    else
+      llvm_unreachable("Unsupported cache control.");
   case xegpu::CachePolicy::STREAMING:
-    return xevm::StoreCacheControl::S;
+    if (L3hintVal == xegpu::CachePolicy::UNCACHED)
+      return xevm::StoreCacheControl::L1S_L2UC_L3UC;
+    else if(L3hintVal == xegpu::CachePolicy::WRITE_BACK)
+      return xevm::StoreCacheControl::L1S_L2UC_L3WB;
+    else
+      llvm_unreachable("Unsupported cache control.");
   case xegpu::CachePolicy::WRITE_BACK:
-    return xevm::StoreCacheControl::WB;
+    if (L3hintVal == xegpu::CachePolicy::UNCACHED)
+      return xevm::StoreCacheControl::L1WB_L2UC_L3UC;
+    else if(L3hintVal == xegpu::CachePolicy::WRITE_BACK)
+      return xevm::StoreCacheControl::L1WB_L2UC_L3WB;
+    else
+      llvm_unreachable("Unsupported cache control.");
   case xegpu::CachePolicy::WRITE_THROUGH:
-    return xevm::StoreCacheControl::WT;
+    if (L3hintVal == xegpu::CachePolicy::UNCACHED)
+      return xevm::StoreCacheControl::L1WT_L2UC_L3UC;
+    else if(L3hintVal == xegpu::CachePolicy::WRITE_BACK)
+      return xevm::StoreCacheControl::L1WT_L2UC_L3WB;
+    else
+      llvm_unreachable("Unsupported cache control.");
   default:
     llvm_unreachable("Unsupported cache control.");
   }
@@ -264,7 +301,8 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
     Value basePtrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtr);
     auto elemType = tdescTy.getElementType();
-    const uint32_t elemBitSize = elemType.getIntOrFloatBitWidth();
+    auto elemBitSize = elemType.getIntOrFloatBitWidth();
+    //auto elemBitSizeAttr = rewriter.getIntegerAttr(rewriter.getI32Type(), elemBitSize);
     Value elemByteSize = rewriter.create<arith::ConstantIntOp>(
         loc, rewriter.getI32Type(), elemBitSize / 8);
     Value surfaceW =
@@ -275,8 +313,7 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
     int32_t vblocks = tdescTy.getArrayLength();
     if constexpr (std::is_same_v<OpType, StoreNdOp>) {
       VectorType srcVecTy = cast<VectorType>(op.getValue().getType());
-      auto l1 = translateStoreXeGPUCacheHint(op.getL1Hint());
-      auto l3 = translateStoreXeGPUCacheHint(op.getL3Hint());
+      auto storeCacheControl = translateStoreXeGPUCacheHint(op.getL1Hint(), op.getL3Hint());
       VectorType srcFlatVecTy =
           VectorType::get(srcVecTy.getNumElements(), srcVecTy.getElementType());
       Value srcFlatVec = op.getValue();
@@ -286,15 +323,14 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
           rewriter.create<vector::BitCastOp>(loc, srcFlatVecTy, srcFlatVec);
       rewriter.create<xevm::BlockStore2dOp>(
           loc, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW, offsetH,
-          elemBitSize, tileW, tileH, vblocks, srcFlatVec, l1, l3);
+          elemBitSize, tileW, tileH, srcFlatVec, xevm::StoreCacheControlAttr::get(ctxt, storeCacheControl));
       rewriter.eraseOp(op);
     } else {
-      auto l1 = translateLoadXeGPUCacheHint(op.getL1Hint());
-      auto l3 = translateLoadXeGPUCacheHint(op.getL3Hint());
+      auto loadCacheControl = translateLoadXeGPUCacheHint(op.getL1Hint(), op.getL3Hint());
       if constexpr (std::is_same_v<OpType, PrefetchNdOp>) {
         rewriter.create<xevm::BlockPrefetch2dOp>(
             loc, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW, offsetH,
-            elemBitSize, tileW, tileH, vblocks, l1, l3);
+            elemBitSize, tileW, tileH, vblocks, xevm::LoadCacheControlAttr::get(ctxt, loadCacheControl));
         rewriter.eraseOp(op);
       } else {
         VectorType dstVecTy = cast<VectorType>(op.getValue().getType());
@@ -308,8 +344,7 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
 
         Value resultFlatVec = rewriter.create<xevm::BlockLoad2dOp>(
             loc, loadedTy, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW,
-            offsetH, elemBitSize, tileW, tileH, vblocks, transpose, vnni, l1,
-            l3);
+            offsetH, elemBitSize, tileW, tileH, vblocks, transpose, vnni, xevm::LoadCacheControlAttr::get(ctxt, loadCacheControl));
         resultFlatVec = rewriter.create<vector::BitCastOp>(
             loc, encodeVectorTypeTo(loadedTy, dstVecTy.getElementType()),
             resultFlatVec);
@@ -451,9 +486,8 @@ class PrefetchToXeVMPattern : public OpConversionPattern<xegpu::PrefetchOp> {
     Value ptrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
     rewriter.create<xevm::PrefetchOp>(
-        loc, ptrLLVM, xevm::OclAddrSpace::kGlobal,
-        translateLoadXeGPUCacheHint(op.getL1Hint()),
-        translateLoadXeGPUCacheHint(op.getL3Hint()));
+        loc, ptrLLVM,
+        xevm::LoadCacheControlAttr::get(ctxt, translateLoadXeGPUCacheHint(op.getL1Hint(), op.getL3Hint())));
     return success();
   }
 };
@@ -463,32 +497,23 @@ class FenceToXeVMPattern : public OpConversionPattern<xegpu::FenceOp> {
   matchAndRewrite(xegpu::FenceOp op, xegpu::FenceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
-    xevm::MemoryScope memScope{imex::xevm::MemoryScope::WORKGROUP};
+    xevm::MemScope memScope{xevm::MemScope::WORKGROUP};
     switch (op.getFenceScope()) {
     case xegpu::FenceScope::Workgroup:
-      memScope = xevm::MemoryScope::WORKGROUP;
-      break;
-    case xegpu::FenceScope::Local:
-      memScope = xevm::MemoryScope::LOCAL;
-      break;
-    case xegpu::FenceScope::Tile:
-      memScope = xevm::MemoryScope::TILE;
+      memScope = xevm::MemScope::WORKGROUP;
       break;
     case xegpu::FenceScope::GPU:
-      memScope = xevm::MemoryScope::GPU;
-      break;
-    case xegpu::FenceScope::System:
-      memScope = xevm::MemoryScope::SYSTEM;
+      memScope = xevm::MemScope::DEVICE;
       break;
       llvm_unreachable("Unknown XeGPU fence scope.");
     }
-    xevm::OclAddrSpace addrSpace{xevm::OclAddrSpace::kGlobal};
+    xevm::AddrSpace addrSpace{xevm::AddrSpace::GLOBAL};
     switch (op.getMemoryKind()) {
     case xegpu::MemorySpace::Global:
-      addrSpace = xevm::OclAddrSpace::kGlobal;
+      addrSpace = xevm::AddrSpace::GLOBAL;
       break;
     case xegpu::MemorySpace::SLM:
-      addrSpace = xevm::OclAddrSpace::kShared;
+      addrSpace = xevm::AddrSpace::SHARED;
       break;
       llvm_unreachable("Unknown XeGPU fence scope.");
     }
@@ -509,25 +534,24 @@ class DpasToXeVMPattern : public OpConversionPattern<xegpu::DpasOp> {
     auto bTy = mlir::cast<VectorType>(op.getRhs().getType());
     auto resultType = mlir::cast<VectorType>(op.getResultType());
 
-    auto encodePrecision = [&](Type type) -> imex::xevm::PrecisionType {
+    auto encodePrecision = [&](Type type) -> xevm::ElemType {
       if (type == rewriter.getBF16Type())
-        return xevm::PrecisionType::BF16;
+        return xevm::ElemType::BF16;
       else if (type == rewriter.getF16Type())
-        return xevm::PrecisionType::FP16;
+        return xevm::ElemType::F16;
       else if (type == rewriter.getTF32Type())
-        return xevm::PrecisionType::TF32;
+        return xevm::ElemType::TF32;
       else if (type.isInteger(8)) {
         if (type.isUnsignedInteger())
-          return xevm::PrecisionType::U8;
-        return xevm::PrecisionType::S8;
+          return xevm::ElemType::U8;
+        return xevm::ElemType::S8;
       }
-      llvm_unreachable("add more support for PrecisionType");
-      return xevm::PrecisionType::UNUSED;
+      llvm_unreachable("add more support for ElemType");
     };
-    xevm::PrecisionType precATy = encodePrecision(aTy.getElementType());
-    xevm::PrecisionType precBTy = encodePrecision(bTy.getElementType());
-    auto precA = xevm::PrecisionTypeAttr::get(ctxt, precATy);
-    auto precB = xevm::PrecisionTypeAttr::get(ctxt, precBTy);
+    xevm::ElemType precATy = encodePrecision(aTy.getElementType());
+    xevm::ElemType precBTy = encodePrecision(bTy.getElementType());
+    auto precA = xevm::ElemTypeAttr::get(ctxt, precATy);
+    auto precB = xevm::ElemTypeAttr::get(ctxt, precBTy);
     Value c = op.getAcc();
     if (!c) {
       auto elementTy = resultType.getElementType();
@@ -539,7 +563,6 @@ class DpasToXeVMPattern : public OpConversionPattern<xegpu::DpasOp> {
       c = rewriter.create<arith::ConstantOp>(
           loc, DenseElementsAttr::get(resultType, initValueAttr));
     }
-    auto rc = IntegerAttr::get(rewriter.getI32Type(), 8);
 
     Value aVec = op.getLhs();
     Value bVec = op.getRhs();
@@ -548,8 +571,8 @@ class DpasToXeVMPattern : public OpConversionPattern<xegpu::DpasOp> {
         VectorType::get(cvecty.getNumElements(), cvecty.getElementType());
     if (cvecty != cNty)
       c = rewriter.create<vector::ShapeCastOp>(loc, cNty, c);
-    Value dpasRes = rewriter.create<xevm::DpasOp>(loc, cNty, c, aVec,
-                                                        bVec, precA, precB, rc);
+    Value dpasRes = rewriter.create<xevm::MMAOp>(loc, cNty, aVec,
+                                                        bVec, a, xevm::MMAShapeAttr::get(ctxt, m, n, k), xevm::MMATypesAttr::get(ctxt, precA, precB, precC);
     if (cvecty != cNty)
       dpasRes = rewriter.create<vector::ShapeCastOp>(loc, resultType, dpasRes);
     rewriter.replaceOp(op, dpasRes);
