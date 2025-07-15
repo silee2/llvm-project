@@ -79,9 +79,12 @@ mlir::VectorType encodeVectorTypeTo(mlir::VectorType currentVecType,
 }
 
 xevm::LoadCacheControl
-translateLoadXeGPUCacheHint(std::optional<xegpu::CachePolicy> L1hint, std::optional<xegpu::CachePolicy> L3hint) {
-  auto L1hintVal = L1hint.has_value() ? L1hint.value() : xegpu::CachePolicy::UNCACHED;
-  auto L3hintVal = L3hint.has_value() ? L3hint.value() : xegpu::CachePolicy::UNCACHED;
+translateLoadXeGPUCacheHint(std::optional<xegpu::CachePolicy> L1hint,
+                            std::optional<xegpu::CachePolicy> L3hint) {
+  auto L1hintVal =
+      L1hint.has_value() ? L1hint.value() : xegpu::CachePolicy::UNCACHED;
+  auto L3hintVal =
+      L3hint.has_value() ? L3hint.value() : xegpu::CachePolicy::UNCACHED;
   switch (L1hintVal) {
   case xegpu::CachePolicy::CACHED:
     if (L3hintVal == xegpu::CachePolicy::CACHED)
@@ -112,35 +115,38 @@ translateLoadXeGPUCacheHint(std::optional<xegpu::CachePolicy> L1hint, std::optio
 }
 
 xevm::StoreCacheControl
-translateStoreXeGPUCacheHint(std::optional<xegpu::CachePolicy> L1hint, std::optional<xegpu::CachePolicy> L3hint) {
-  auto L1hintVal = L1hint.has_value() ? L1hint.value() : xegpu::CachePolicy::UNCACHED;
-  auto L3hintVal = L3hint.has_value() ? L3hint.value() : xegpu::CachePolicy::UNCACHED;
+translateStoreXeGPUCacheHint(std::optional<xegpu::CachePolicy> L1hint,
+                             std::optional<xegpu::CachePolicy> L3hint) {
+  auto L1hintVal =
+      L1hint.has_value() ? L1hint.value() : xegpu::CachePolicy::UNCACHED;
+  auto L3hintVal =
+      L3hint.has_value() ? L3hint.value() : xegpu::CachePolicy::UNCACHED;
   switch (L1hintVal) {
   case xegpu::CachePolicy::UNCACHED:
     if (L3hintVal == xegpu::CachePolicy::UNCACHED)
       return xevm::StoreCacheControl::L1UC_L2UC_L3UC;
-    else if(L3hintVal == xegpu::CachePolicy::WRITE_BACK)
+    else if (L3hintVal == xegpu::CachePolicy::WRITE_BACK)
       return xevm::StoreCacheControl::L1UC_L2UC_L3WB;
     else
       llvm_unreachable("Unsupported cache control.");
   case xegpu::CachePolicy::STREAMING:
     if (L3hintVal == xegpu::CachePolicy::UNCACHED)
       return xevm::StoreCacheControl::L1S_L2UC_L3UC;
-    else if(L3hintVal == xegpu::CachePolicy::WRITE_BACK)
+    else if (L3hintVal == xegpu::CachePolicy::WRITE_BACK)
       return xevm::StoreCacheControl::L1S_L2UC_L3WB;
     else
       llvm_unreachable("Unsupported cache control.");
   case xegpu::CachePolicy::WRITE_BACK:
     if (L3hintVal == xegpu::CachePolicy::UNCACHED)
       return xevm::StoreCacheControl::L1WB_L2UC_L3UC;
-    else if(L3hintVal == xegpu::CachePolicy::WRITE_BACK)
+    else if (L3hintVal == xegpu::CachePolicy::WRITE_BACK)
       return xevm::StoreCacheControl::L1WB_L2UC_L3WB;
     else
       llvm_unreachable("Unsupported cache control.");
   case xegpu::CachePolicy::WRITE_THROUGH:
     if (L3hintVal == xegpu::CachePolicy::UNCACHED)
       return xevm::StoreCacheControl::L1WT_L2UC_L3UC;
-    else if(L3hintVal == xegpu::CachePolicy::WRITE_BACK)
+    else if (L3hintVal == xegpu::CachePolicy::WRITE_BACK)
       return xevm::StoreCacheControl::L1WT_L2UC_L3WB;
     else
       llvm_unreachable("Unsupported cache control.");
@@ -302,7 +308,8 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtr);
     auto elemType = tdescTy.getElementType();
     auto elemBitSize = elemType.getIntOrFloatBitWidth();
-    //auto elemBitSizeAttr = rewriter.getIntegerAttr(rewriter.getI32Type(), elemBitSize);
+    // auto elemBitSizeAttr = rewriter.getIntegerAttr(rewriter.getI32Type(),
+    // elemBitSize);
     Value elemByteSize = rewriter.create<arith::ConstantIntOp>(
         loc, rewriter.getI32Type(), elemBitSize / 8);
     Value surfaceW =
@@ -313,7 +320,8 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
     int32_t vblocks = tdescTy.getArrayLength();
     if constexpr (std::is_same_v<OpType, StoreNdOp>) {
       VectorType srcVecTy = cast<VectorType>(op.getValue().getType());
-      auto storeCacheControl = translateStoreXeGPUCacheHint(op.getL1Hint(), op.getL3Hint());
+      auto storeCacheControl =
+          translateStoreXeGPUCacheHint(op.getL1Hint(), op.getL3Hint());
       VectorType srcFlatVecTy =
           VectorType::get(srcVecTy.getNumElements(), srcVecTy.getElementType());
       Value srcFlatVec = op.getValue();
@@ -323,14 +331,17 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
           rewriter.create<vector::BitCastOp>(loc, srcFlatVecTy, srcFlatVec);
       rewriter.create<xevm::BlockStore2dOp>(
           loc, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW, offsetH,
-          elemBitSize, tileW, tileH, srcFlatVec, xevm::StoreCacheControlAttr::get(ctxt, storeCacheControl));
+          elemBitSize, tileW, tileH, srcFlatVec,
+          xevm::StoreCacheControlAttr::get(ctxt, storeCacheControl));
       rewriter.eraseOp(op);
     } else {
-      auto loadCacheControl = translateLoadXeGPUCacheHint(op.getL1Hint(), op.getL3Hint());
+      auto loadCacheControl =
+          translateLoadXeGPUCacheHint(op.getL1Hint(), op.getL3Hint());
       if constexpr (std::is_same_v<OpType, PrefetchNdOp>) {
         rewriter.create<xevm::BlockPrefetch2dOp>(
             loc, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW, offsetH,
-            elemBitSize, tileW, tileH, vblocks, xevm::LoadCacheControlAttr::get(ctxt, loadCacheControl));
+            elemBitSize, tileW, tileH, vblocks,
+            xevm::LoadCacheControlAttr::get(ctxt, loadCacheControl));
         rewriter.eraseOp(op);
       } else {
         VectorType dstVecTy = cast<VectorType>(op.getValue().getType());
@@ -344,7 +355,8 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
 
         Value resultFlatVec = rewriter.create<xevm::BlockLoad2dOp>(
             loc, loadedTy, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW,
-            offsetH, elemBitSize, tileW, tileH, vblocks, transpose, vnni, xevm::LoadCacheControlAttr::get(ctxt, loadCacheControl));
+            offsetH, elemBitSize, tileW, tileH, vblocks, transpose, vnni,
+            xevm::LoadCacheControlAttr::get(ctxt, loadCacheControl));
         resultFlatVec = rewriter.create<vector::BitCastOp>(
             loc, encodeVectorTypeTo(loadedTy, dstVecTy.getElementType()),
             resultFlatVec);
@@ -487,7 +499,8 @@ class PrefetchToXeVMPattern : public OpConversionPattern<xegpu::PrefetchOp> {
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
     rewriter.create<xevm::PrefetchOp>(
         loc, ptrLLVM,
-        xevm::LoadCacheControlAttr::get(ctxt, translateLoadXeGPUCacheHint(op.getL1Hint(), op.getL3Hint())));
+        xevm::LoadCacheControlAttr::get(
+            ctxt, translateLoadXeGPUCacheHint(op.getL1Hint(), op.getL3Hint())));
     return success();
   }
 };
@@ -545,13 +558,16 @@ class DpasToXeVMPattern : public OpConversionPattern<xegpu::DpasOp> {
         if (type.isUnsignedInteger())
           return xevm::ElemType::U8;
         return xevm::ElemType::S8;
-      }
+      } else if (type == rewriter.getF32Type())
+        return xevm::ElemType::F32;
+      else if (type.isInteger(32))
+        return xevm::ElemType::S32;
       llvm_unreachable("add more support for ElemType");
     };
     xevm::ElemType precATy = encodePrecision(aTy.getElementType());
     xevm::ElemType precBTy = encodePrecision(bTy.getElementType());
-    auto precA = xevm::ElemTypeAttr::get(ctxt, precATy);
-    auto precB = xevm::ElemTypeAttr::get(ctxt, precBTy);
+    // auto precA = xevm::ElemTypeAttr::get(ctxt, precATy);
+    // auto precB = xevm::ElemTypeAttr::get(ctxt, precBTy);
     Value c = op.getAcc();
     if (!c) {
       auto elementTy = resultType.getElementType();
@@ -567,12 +583,22 @@ class DpasToXeVMPattern : public OpConversionPattern<xegpu::DpasOp> {
     Value aVec = op.getLhs();
     Value bVec = op.getRhs();
     auto cvecty = cast<VectorType>(c.getType());
+    xevm::ElemType precCTy = encodePrecision(cvecty.getElementType());
+    xevm::ElemType precDTy = encodePrecision(resultType.getElementType());
+    // auto precC = xevm::ElemTypeAttr::get(ctxt, precCTy);
+    // auto precD = xevm::ElemTypeAttr::get(ctxt, precDTy);
     VectorType cNty =
         VectorType::get(cvecty.getNumElements(), cvecty.getElementType());
     if (cvecty != cNty)
       c = rewriter.create<vector::ShapeCastOp>(loc, cNty, c);
-    Value dpasRes = rewriter.create<xevm::MMAOp>(loc, cNty, aVec,
-                                                        bVec, a, xevm::MMAShapeAttr::get(ctxt, m, n, k), xevm::MMATypesAttr::get(ctxt, precA, precB, precC);
+    // TODO: below are uArch dependent values, should move away from hardcoding
+    constexpr int32_t systolicDepth{8};
+    constexpr int32_t executionSize{16};
+    Value dpasRes = rewriter.create<xevm::MMAOp>(
+        loc, cNty, aVec, bVec, c,
+        xevm::MMAShapeAttr::get(ctxt, cvecty.getNumElements(), executionSize,
+                                systolicDepth),
+        xevm::MMATypesAttr::get(ctxt, precDTy, precATy, precBTy, precCTy));
     if (cvecty != cNty)
       dpasRes = rewriter.create<vector::ShapeCastOp>(loc, resultType, dpasRes);
     rewriter.replaceOp(op, dpasRes);
