@@ -288,6 +288,9 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
 
     auto tdesc = adaptor.getTensorDesc();
     auto tdescTy = op.getTensorDescType();
+    if (tdescTy.getRank() != 2) {
+      return rewriter.notifyMatchFailure(op, "Expected 2D tensor descriptor.");
+    }
 
     VectorType payloadI64Ty = VectorType::get(4, rewriter.getI64Type());
     Value payLoadAsI64 =
@@ -298,10 +301,49 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
         loc, tdesc, static_cast<int>(NdDescI32Layout::BaseShapeW));
     Value baseShapeH = rewriter.create<vector::ExtractOp>(
         loc, tdesc, static_cast<int>(NdDescI32Layout::BaseShapeH));
-    Value offsetW = rewriter.create<vector::ExtractOp>(
-        loc, tdesc, static_cast<int>(NdDescI32Layout::TensorOffsetW));
-    Value offsetH = rewriter.create<vector::ExtractOp>(
-        loc, tdesc, static_cast<int>(NdDescI32Layout::TensorOffsetH));
+    // Offsets can come from three sources:
+    // 1. Constant offsets, which are provided by the op.
+    // 2. Offsets as operands, which are provided by the op.
+    // 3. Offsets extracted from the tensor descriptor.
+    Value offsetW;
+    Value offsetH;
+    auto cOffsets = op.getConstOffsets();
+    auto offsets = op.getOffsets();
+    if (cOffsets) {
+      offsetW = rewriter.create<arith::ConstantIntOp>(
+          loc, rewriter.getI32Type(), (*cOffsets)[0]);
+      offsetH = rewriter.create<arith::ConstantIntOp>(
+          loc, rewriter.getI32Type(), (*cOffsets)[1]);
+    } else if (offsets.size() != 0) {
+      // offsets are provided as operands
+      if (offsets[0].getType() != rewriter.getI32Type()) {
+        if (offsets[0].getType() != rewriter.getIndexType()) {
+          return rewriter.notifyMatchFailure(
+              op, "Expected offsets to be of type i32 or index.");
+        }
+        offsetW = rewriter.create<arith::IndexCastUIOp>(
+            loc, rewriter.getI32Type(), offsets[0]);
+      } else {
+        offsetW = offsets[0];
+      }
+      if (offsets[1].getType() != rewriter.getI32Type()) {
+        if (offsets[1].getType() != rewriter.getIndexType()) {
+          return rewriter.notifyMatchFailure(
+              op, "Expected offsets to be of type i32 or index.");
+        }
+        offsetH = rewriter.create<arith::IndexCastUIOp>(
+            loc, rewriter.getI32Type(), offsets[1]);
+      } else {
+        offsetH = offsets[1];
+      }
+    } else {
+      // If offsets are not available, we need to extract them from the tensor
+      // descriptor.
+      offsetW = rewriter.create<vector::ExtractOp>(
+          loc, tdesc, static_cast<int>(NdDescI32Layout::TensorOffsetW));
+      offsetH = rewriter.create<vector::ExtractOp>(
+          loc, tdesc, static_cast<int>(NdDescI32Layout::TensorOffsetH));
+    }
     auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
         ctxt, getNumericXeVMAddrSpace(tdescTy.getMemorySpace()));
     Value basePtrLLVM =
