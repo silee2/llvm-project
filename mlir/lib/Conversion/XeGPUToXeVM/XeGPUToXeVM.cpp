@@ -639,12 +639,29 @@ class DpasToXeVMPattern : public OpConversionPattern<xegpu::DpasOp> {
     Value dpasRes = rewriter.create<xevm::MMAOp>(
         loc, cNty, aVec, bVec, c,
         xevm::MMAShapeAttr::get(ctxt, cvecty.getNumElements(), executionSize,
-                                systolicDepth),
+                                systolicDepth *
+                                    getNumOperandsPerDword(precATy)),
         xevm::MMATypesAttr::get(ctxt, precDTy, precATy, precBTy, precCTy));
     if (cvecty != cNty)
       dpasRes = rewriter.create<vector::ShapeCastOp>(loc, resultType, dpasRes);
     rewriter.replaceOp(op, dpasRes);
     return success();
+  }
+
+private:
+  static unsigned getNumOperandsPerDword(xevm::ElemType pTy) {
+    switch (pTy) {
+    case xevm::ElemType::TF32:
+      return 1;
+    case xevm::ElemType::BF16:
+    case xevm::ElemType::F16:
+      return 2;
+    case xevm::ElemType::U8:
+    case xevm::ElemType::S8:
+      return 4;
+    default:
+      llvm_unreachable("unsupported xevm::ElemType");
+    }
   }
 };
 
