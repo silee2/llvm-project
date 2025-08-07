@@ -503,7 +503,7 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
     auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
         ctxt, getNumericXeVMAddrSpace(tdesc.getMemorySpace()));
     Value basePtrI64 = rewriter.create<arith::IndexCastOp>(
-        loc, rewriter.getI64Type(), adaptor.getTensorDesc());
+        loc, rewriter.getI64Type(), op.getTensorDesc());
     Value basePtrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
     VectorType srcOrDstVecTy = cast<VectorType>(op.getValue().getType());
@@ -536,7 +536,7 @@ class PrefetchToXeVMPattern : public OpConversionPattern<xegpu::PrefetchOp> {
     auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
         ctxt, getNumericXeVMAddrSpace(tdescTy.getMemorySpace()));
     Value basePtrI64 = rewriter.create<arith::IndexCastOp>(
-        loc, rewriter.getI64Type(), adaptor.getTensorDesc());
+        loc, rewriter.getI64Type(), op.getTensorDesc());
     Value ptrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
     rewriter.create<xevm::PrefetchOp>(
