@@ -18,6 +18,7 @@ add_mlir_conversion_library(MLIRXeGPUToXeVM
   MLIRXeVMDialect
   MLIRVectorDialect
   MLIRArithDialect
+  MLIRIndexDialect
   MLIRXeGPUDialect
   MLIRPass
   MLIRTransforms
