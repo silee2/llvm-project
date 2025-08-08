@@ -424,7 +424,9 @@ class CreateDescToXeVMPattern
     bool allLinear{false};
     int32_t slope{0};
     int32_t intercept{0};
-    if (auto cstOp = dyn_cast<arith::ConstantOp>(offsets.getDefiningOp())) {
+    // Offsets can be passed as function arguments
+    if (auto defOp = offsets.getDefiningOp()) {
+    if (auto cstOp = dyn_cast<arith::ConstantOp>(defOp)) {
       if (auto denseAttr = cstOp->getAttrOfType<DenseElementsAttr>(
               cstOp.getValueAttrName())) {
         SmallVector<int32_t> intValues;
@@ -433,20 +435,22 @@ class CreateDescToXeVMPattern
         std::tie(allLinear, slope, intercept) = checkAllLinear(intValues);
       }
     }
+    }
 
+    // Source type can be a 1D memref or ui64
+    auto memrefTy = dyn_cast<MemRefType>(op.getSource().getType());
+    Value subGroupAddr;
+    if (memrefTy)
+      subGroupAddr = rewriter.create<memref::ExtractAlignedPointerAsIndexOp>(
+          loc, op.getSource());
+    else {
+      subGroupAddr = rewriter.create<index::CastUOp>(
+          loc, rewriter.getIndexType(), op.getSource());
+    }
+    Value laneId =
+        rewriter.create<gpu::LaneIdOp>(loc, /*upperBound=*/nullptr);
+    Value laneOffset;
     if (allLinear) {
-      // Source type can be a 1D memref or ui64
-      auto memrefTy = dyn_cast<MemRefType>(op.getSource().getType());
-      Value subGroupAddr;
-      if (memrefTy)
-        subGroupAddr = rewriter.create<memref::ExtractAlignedPointerAsIndexOp>(
-            loc, op.getSource());
-      else {
-        subGroupAddr = rewriter.create<index::CastUOp>(
-            loc, rewriter.getIndexType(), op.getSource());
-        // subGroupAddr = rewriter.create<arith::IndexCastUIOp>(
-        //     loc, rewriter.getIndexType(), subGroupAddr);
-      }
       Value elemByteWidth = rewriter.create<arith::ConstantIndexOp>(
           loc, op.getType().getElementTypeBitWidth() / 8);
       Value offsetIntercept =
@@ -456,16 +460,17 @@ class CreateDescToXeVMPattern
       Value offsetSlope = rewriter.create<arith::ConstantIndexOp>(loc, slope);
       offsetSlope =
           rewriter.create<arith::MulIOp>(loc, elemByteWidth, offsetSlope);
-      Value laneId =
-          rewriter.create<gpu::LaneIdOp>(loc, /*upperBound=*/nullptr);
-      Value laneOffset =
+      laneOffset =
           rewriter.create<arith::MulIOp>(loc, laneId, offsetSlope);
       laneOffset =
           rewriter.create<arith::AddIOp>(loc, laneOffset, offsetIntercept);
-      auto laneAddr =
-          rewriter.create<arith::AddIOp>(loc, subGroupAddr, laneOffset);
-      rewriter.replaceOp(op, laneAddr);
+    } else {
+      laneOffset =
+          rewriter.create<vector::ExtractOp>(loc, offsets, laneId);
     }
+    auto laneAddr =
+        rewriter.create<arith::AddIOp>(loc, subGroupAddr, laneOffset);
+    rewriter.replaceOp(op, laneAddr);
     return success();
   }
 };
