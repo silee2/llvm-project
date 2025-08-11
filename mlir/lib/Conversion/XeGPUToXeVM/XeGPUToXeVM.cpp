@@ -512,37 +512,50 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
     auto tdesc = op.getTensorDescType();
     auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
         ctxt, getNumericXeVMAddrSpace(tdesc.getMemorySpace()));
+    Value basePtrIndex;
     Value basePtrI64;
     if constexpr (std::is_same_v<OpType, LoadGatherOp>) {
-      basePtrI64 = rewriter.create<arith::IndexCastOp>(
-          loc, rewriter.getI64Type(), adaptor.getSource());
+      basePtrIndex = adaptor.getSource();
     } else {
-      basePtrI64 = rewriter.create<arith::IndexCastOp>(
-          loc, rewriter.getI64Type(), adaptor.getDest());
+      basePtrIndex = adaptor.getDest();
     }
+    Value laneId =
+        rewriter.create<gpu::LaneIdOp>(loc, /*upperBound=*/nullptr);
+    // offsets can be empty
+    Value offsets = adaptor.getOffsets();
+    Type offsetsTy = offsets.getType();
+    VectorType offsetsVecTy = dyn_cast<VectorType>(offsetsTy);
+    if (offsetsVecTy.getNumElements() > 0) {
+        Value offsetForLane =
+            rewriter.create<vector::ExtractOp>(loc, offsets, laneId);
+        basePtrIndex =
+            rewriter.create<arith::AddIOp>(loc, basePtrIndex, offsetForLane);
+
+    }
+    basePtrI64 = rewriter.create<arith::IndexCastOp>(
+        loc, rewriter.getI64Type(), basePtrIndex);
     Value basePtrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
     VectorType srcOrDstVecTy = cast<VectorType>(op.getValue().getType());
     VectorType srcOrDstFlatVecTy = VectorType::get(
         srcOrDstVecTy.getNumElements(), srcOrDstVecTy.getElementType());
+    auto mask = adaptor.getMask();
+    Value maskForLane = rewriter.create<vector::ExtractOp>(
+        loc, mask, laneId);
     if constexpr (std::is_same_v<OpType, LoadGatherOp>) {
       Value loaded =
           rewriter.create<LLVM::LoadOp>(loc, srcOrDstFlatVecTy, basePtrLLVM);
-      if (srcOrDstVecTy == srcOrDstFlatVecTy) {
-        rewriter.replaceOp(op, loaded);
-      } else {
-        auto newOp =
+      if (srcOrDstVecTy != srcOrDstFlatVecTy) {
+        loaded =
             rewriter.create<vector::ShapeCastOp>(loc, srcOrDstVecTy, loaded);
-        rewriter.replaceOp(op, newOp);
       }
+        rewriter.replaceOp(op, loaded);
     } else {
       mlir::VectorType valTy = op.getValue().getType();
-      Value srcFlatVec;
+      Value srcFlatVec = op.getValue();
       if (valTy != srcOrDstFlatVecTy) {
         srcFlatVec = rewriter.create<vector::ShapeCastOp>(
-            loc, srcOrDstFlatVecTy, op.getValue());
-      } else {
-        srcFlatVec = op.getValue();
+            loc, srcOrDstFlatVecTy, srcFlatVec);
       }
       rewriter.create<LLVM::StoreOp>(loc, srcFlatVec, basePtrLLVM);
       rewriter.eraseOp(op);
