@@ -17,6 +17,7 @@
 #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "mlir/Pass/Pass.h"
@@ -426,15 +427,15 @@ class CreateDescToXeVMPattern
     int32_t intercept{0};
     // Offsets can be passed as function arguments
     if (auto defOp = offsets.getDefiningOp()) {
-    if (auto cstOp = dyn_cast<arith::ConstantOp>(defOp)) {
-      if (auto denseAttr = cstOp->getAttrOfType<DenseElementsAttr>(
-              cstOp.getValueAttrName())) {
-        SmallVector<int32_t> intValues;
-        for (APInt val : denseAttr.getValues<APInt>())
-          intValues.push_back(static_cast<int32_t>(val.getSExtValue()));
-        std::tie(allLinear, slope, intercept) = checkAllLinear(intValues);
+      if (auto cstOp = dyn_cast<arith::ConstantOp>(defOp)) {
+        if (auto denseAttr = cstOp->getAttrOfType<DenseElementsAttr>(
+                cstOp.getValueAttrName())) {
+          SmallVector<int32_t> intValues;
+          for (APInt val : denseAttr.getValues<APInt>())
+            intValues.push_back(static_cast<int32_t>(val.getSExtValue()));
+          std::tie(allLinear, slope, intercept) = checkAllLinear(intValues);
+        }
       }
-    }
     }
 
     // Source type can be a 1D memref or ui64
@@ -447,8 +448,7 @@ class CreateDescToXeVMPattern
       subGroupAddr = rewriter.create<index::CastUOp>(
           loc, rewriter.getIndexType(), op.getSource());
     }
-    Value laneId =
-        rewriter.create<gpu::LaneIdOp>(loc, /*upperBound=*/nullptr);
+    Value laneId = rewriter.create<gpu::LaneIdOp>(loc, /*upperBound=*/nullptr);
     Value laneOffset;
     if (allLinear) {
       Value elemByteWidth = rewriter.create<arith::ConstantIndexOp>(
@@ -460,13 +460,11 @@ class CreateDescToXeVMPattern
       Value offsetSlope = rewriter.create<arith::ConstantIndexOp>(loc, slope);
       offsetSlope =
           rewriter.create<arith::MulIOp>(loc, elemByteWidth, offsetSlope);
-      laneOffset =
-          rewriter.create<arith::MulIOp>(loc, laneId, offsetSlope);
+      laneOffset = rewriter.create<arith::MulIOp>(loc, laneId, offsetSlope);
       laneOffset =
           rewriter.create<arith::AddIOp>(loc, laneOffset, offsetIntercept);
     } else {
-      laneOffset =
-          rewriter.create<vector::ExtractOp>(loc, offsets, laneId);
+      laneOffset = rewriter.create<vector::ExtractOp>(loc, offsets, laneId);
     }
     auto laneAddr =
         rewriter.create<arith::AddIOp>(loc, subGroupAddr, laneOffset);
@@ -509,9 +507,9 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
     auto ctxt = rewriter.getContext();
-    auto tdesc = op.getTensorDescType();
+    auto tdescTy = op.getTensorDescType();
     auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
-        ctxt, getNumericXeVMAddrSpace(tdesc.getMemorySpace()));
+        ctxt, getNumericXeVMAddrSpace(tdescTy.getMemorySpace()));
     Value basePtrIndex;
     Value basePtrI64;
     if constexpr (std::is_same_v<OpType, LoadGatherOp>) {
@@ -519,38 +517,53 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
     } else {
       basePtrIndex = adaptor.getDest();
     }
-    Value laneId =
-        rewriter.create<gpu::LaneIdOp>(loc, /*upperBound=*/nullptr);
-    // offsets can be empty
     Value offsets = adaptor.getOffsets();
-    Type offsetsTy = offsets.getType();
-    VectorType offsetsVecTy = dyn_cast<VectorType>(offsetsTy);
-    if (offsetsVecTy.getNumElements() > 0) {
-        Value offsetForLane =
-            rewriter.create<vector::ExtractOp>(loc, offsets, laneId);
+    Value mask = adaptor.getMask();
+    if (offsets) {
+      VectorType offsetsVecTy = dyn_cast<VectorType>(offsets.getType());
+      if (offsetsVecTy) {
+        // Offset needs be a single element vector.
+        if (offsetsVecTy.getNumElements() != 1) {
+          return rewriter.notifyMatchFailure(
+              op, "Expected offsets to be a single element vector.");
+        }
+        Value offset = rewriter.create<vector::ExtractOp>(loc, offsets, 0);
         basePtrIndex =
-            rewriter.create<arith::AddIOp>(loc, basePtrIndex, offsetForLane);
-
+            rewriter.create<arith::AddIOp>(loc, basePtrIndex, offset);
+      } else
+        basePtrIndex =
+            rewriter.create<arith::AddIOp>(loc, basePtrIndex, offsets);
     }
-    basePtrI64 = rewriter.create<arith::IndexCastOp>(
-        loc, rewriter.getI64Type(), basePtrIndex);
+    basePtrI64 = rewriter.create<arith::IndexCastOp>(loc, rewriter.getI64Type(),
+                                                     basePtrIndex);
     Value basePtrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
-    VectorType srcOrDstVecTy = cast<VectorType>(op.getValue().getType());
+    VectorType srcOrDstVecTy = op.getValueType();
     VectorType srcOrDstFlatVecTy = VectorType::get(
         srcOrDstVecTy.getNumElements(), srcOrDstVecTy.getElementType());
-    auto mask = adaptor.getMask();
-    Value maskForLane = rewriter.create<vector::ExtractOp>(
-        loc, mask, laneId);
+    Value maskForLane;
+    VectorType maskVecTy = dyn_cast<VectorType>(mask.getType());
+    if (maskVecTy) {
+      if (maskVecTy.getNumElements() != 1) {
+        return rewriter.notifyMatchFailure(
+            op, "Expected mask to be a single element vector.");
+      }
+      maskForLane = rewriter.create<vector::ExtractOp>(loc, mask, 0);
+    } else
+      maskForLane = mask;
     if constexpr (std::is_same_v<OpType, LoadGatherOp>) {
+      scf::IfOp ifOp = scf::IfOp::create(rewriter, loc, {srcOrDstVecTy},
+                                         maskForLane, true, false);
       Value loaded =
           rewriter.create<LLVM::LoadOp>(loc, srcOrDstFlatVecTy, basePtrLLVM);
       if (srcOrDstVecTy != srcOrDstFlatVecTy) {
         loaded =
             rewriter.create<vector::ShapeCastOp>(loc, srcOrDstVecTy, loaded);
       }
-        rewriter.replaceOp(op, loaded);
+      rewriter.replaceOp(op, ifOp.getResult(0));
     } else {
+      scf::IfOp ifOp =
+          scf::IfOp::create(rewriter, loc, {}, maskForLane, true, false);
       mlir::VectorType valTy = op.getValue().getType();
       Value srcFlatVec = op.getValue();
       if (valTy != srcOrDstFlatVecTy) {

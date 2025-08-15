@@ -4,8 +4,8 @@ gpu.module @test {
 // CHECK-LABEL: @load_gather_ui64_src_linear_constant_indices
 // CHECK-SAME: %[[ARG0:.*]]: ui64
 gpu.func @load_gather_ui64_src_linear_constant_indices(%src: ui64) {
-  %0 = arith.constant dense<[0, 8, 16, 24]> : vector<4xindex>
-  %1 = arith.constant dense<1>: vector<4xi1>
+  %0 = arith.constant dense<0> : vector<1xindex>
+  %1 = arith.constant dense<1>: vector<1xi1>
   // CHECK: %[[VAR0:.*]] = index.castu %[[ARG0]] : ui64 to index
   // CHECK: %[[VAR1:.*]] = gpu.lane_id
   // CHECK: %[[C4:.*]] = arith.constant 4 : index
@@ -16,11 +16,11 @@ gpu.func @load_gather_ui64_src_linear_constant_indices(%src: ui64) {
   // CHECK: %[[VAR4:.*]] = arith.muli %[[VAR1]], %[[VAR3]] : index
   // CHECK: %[[VAR5:.*]] = arith.addi %[[VAR4]], %[[VAR2]] : index
   // CHECK: %[[VAR6:.*]] = arith.addi %[[VAR0]], %[[VAR5]] : index
-  %2 = xegpu.create_tdesc %src, %0 : ui64, vector<4xindex> -> !xegpu.tensor_desc<4x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
+  %2 = xegpu.create_tdesc %src, %0 : ui64, vector<1xindex> -> !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
   // CHECK: %[[VAR7:.*]] = arith.index_cast %[[VAR6]] : index to i64
   // CHECK: %[[VAR8:.*]] = llvm.inttoptr %[[VAR7]] : i64 to !llvm.ptr<1>
   // CHECK: %[[VAR9:.*]] = llvm.load %[[VAR8]] : !llvm.ptr<1> -> vector<2xf32>
-  %3 = xegpu.load %2, %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}> : !xegpu.tensor_desc<4x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>, vector<4xi1> -> vector<2xf32>
+  %3 = xegpu.load %2, %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}> : !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>, vector<1xi1> -> vector<2xf32>
   gpu.return
 }
 }

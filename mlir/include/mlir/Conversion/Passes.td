@@ -1549,7 +1549,7 @@ def ConvertXeGPUToXeVMPass : Pass<"convert-xegpu-to-xevm"> {
   let dependentDialects = ["xevm::XeVMDialect", "vector::VectorDialect",
                            "memref::MemRefDialect", "arith::ArithDialect",
                            "LLVM::LLVMDialect", "index::IndexDialect",
-                           "gpu::GPUDialect"];
+                           "gpu::GPUDialect", "scf::SCFDialect"];
 }
 
 #endif // MLIR_CONVERSION_PASSES
