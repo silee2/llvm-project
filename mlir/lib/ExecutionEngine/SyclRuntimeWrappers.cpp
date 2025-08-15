@@ -138,12 +138,13 @@ static void launchKernel(sycl::queue *queue, sycl::kernel *kernel, size_t gridX,
   auto syclLocalRange = sycl::range<3>(blockZ, blockY, blockX);
   sycl::nd_range<3> syclNdRange(syclGlobalRange, syclLocalRange);
 
-  queue->submit([&](sycl::handler &cgh) {
+  auto event = queue->submit([&](sycl::handler &cgh) {
     for (size_t i = 0; i < paramsCount; i++) {
       cgh.set_arg(static_cast<uint32_t>(i), *(static_cast<void **>(params[i])));
     }
     cgh.parallel_for(syclNdRange, *kernel);
   });
+  event.wait();
 }
 
 // Wrappers
