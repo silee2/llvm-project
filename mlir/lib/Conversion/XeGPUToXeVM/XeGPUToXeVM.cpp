@@ -421,17 +421,18 @@ class CreateDescToXeVMPattern
     auto loc = op.getLoc();
     auto offsets = adaptor.getOffsets();
     // Source type can be a 1D memref or ui64
-    auto memrefTy = dyn_cast<MemRefType>(adaptor.getSource().getType());
+    // Using "op" instead of "adaptor" since we want to access memref type
+    // instead of LLVM struct type.
+    auto memrefTy = dyn_cast<MemRefType>(op.getSource().getType());
     Value subGroupAddr;
-    if (memrefTy)
+    if (memrefTy) {
       subGroupAddr = rewriter.create<memref::ExtractAlignedPointerAsIndexOp>(
           loc, op.getSource());
-    else {
-      subGroupAddr = rewriter.create<index::CastUOp>(
-          loc, rewriter.getIndexType(), op.getSource());
+      subGroupAddr = rewriter.create<arith::IndexCastUIOp>(
+          loc, rewriter.getI64Type(), subGroupAddr);
+    } else {
+      subGroupAddr = adaptor.getSource();
     }
-    subGroupAddr = rewriter.create<arith::IndexCastUIOp>(
-        loc, rewriter.getI64Type(), subGroupAddr);
     auto laneAddr =
         rewriter.create<arith::AddIOp>(loc, subGroupAddr, offsets);
     rewriter.replaceOp(op, laneAddr);
@@ -476,32 +477,24 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
     auto tdescTy = op.getTensorDescType();
     auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
         ctxt, getNumericXeVMAddrSpace(tdescTy.getMemorySpace()));
-    Value basePtrIndex;
     Value basePtrI64;
     if constexpr (std::is_same_v<OpType, LoadGatherOp>) {
-      basePtrIndex = adaptor.getSource();
+      basePtrI64 = adaptor.getSource();
     } else {
-      basePtrIndex = adaptor.getDest();
+      basePtrI64 = adaptor.getDest();
     }
     Value offsets = adaptor.getOffsets();
     Value mask = adaptor.getMask();
     if (offsets) {
       VectorType offsetsVecTy = dyn_cast<VectorType>(offsets.getType());
       if (offsetsVecTy) {
-        // Offset needs be a single element vector.
-        if (offsetsVecTy.getNumElements() != 1) {
-          return rewriter.notifyMatchFailure(
-              op, "Expected offsets to be a single element vector.");
-        }
-        Value offset = rewriter.create<vector::ExtractOp>(loc, offsets, 0);
-        basePtrIndex =
-            rewriter.create<arith::AddIOp>(loc, basePtrIndex, offset);
-      } else
-        basePtrIndex =
-            rewriter.create<arith::AddIOp>(loc, basePtrIndex, offsets);
+        // Offset needs be scalar.
+        return rewriter.notifyMatchFailure(op,
+                                           "Expected offsets to be a scalar.");
+      } else {
+        basePtrI64 = rewriter.create<arith::AddIOp>(loc, basePtrI64, offsets);
+      }
     }
-    basePtrI64 = rewriter.create<arith::IndexCastOp>(loc, rewriter.getI64Type(),
-                                                     basePtrIndex);
     Value basePtrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
     VectorType srcOrDstVecTy = op.getValueType();
@@ -510,11 +503,7 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
     Value maskForLane;
     VectorType maskVecTy = dyn_cast<VectorType>(mask.getType());
     if (maskVecTy) {
-      if (maskVecTy.getNumElements() != 1) {
-        return rewriter.notifyMatchFailure(
-            op, "Expected mask to be a single element vector.");
-      }
-      maskForLane = rewriter.create<vector::ExtractOp>(loc, mask, 0);
+      return rewriter.notifyMatchFailure(op, "Expected mask to be a scalar.");
     } else
       maskForLane = mask;
     if constexpr (std::is_same_v<OpType, LoadGatherOp>) {
@@ -537,8 +526,7 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
       rewriter.create<scf::YieldOp>(loc, ValueRange{loaded});
       rewriter.replaceOp(op, ifOp.getResult(0));
     } else {
-      scf::IfOp ifOp =
-          scf::IfOp::create(rewriter, loc, {}, maskForLane, true, false);
+      scf::IfOp ifOp = scf::IfOp::create(rewriter, loc, maskForLane, false);
       auto body = ifOp.getBody();
       rewriter.setInsertionPointToStart(body);
       mlir::VectorType valTy = op.getValue().getType();
@@ -564,8 +552,7 @@ class PrefetchToXeVMPattern : public OpConversionPattern<xegpu::PrefetchOp> {
     auto tdescTy = op.getTensorDescType();
     auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
         ctxt, getNumericXeVMAddrSpace(tdescTy.getMemorySpace()));
-    Value basePtrI64 = rewriter.create<arith::IndexCastOp>(
-        loc, rewriter.getI64Type(), adaptor.getSource());
+    Value basePtrI64 = adaptor.getSource();
     Value ptrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
     rewriter.create<xevm::PrefetchOp>(
@@ -773,14 +760,16 @@ struct ConvertXeGPUToXeVMPass
 
   void runOnOperation() override {
     LLVMTypeConverter typeConverter(&getContext());
-    typeConverter.addConversion([&](IndexType type) -> Type { return type; });
     typeConverter.addConversion([&](VectorType type) -> Type {
       unsigned rank = type.getRank();
       auto elemType = type.getElementType();
+      // If the element type is index, convert it to i64.
       if (llvm::isa<mlir::IndexType>(elemType))
         elemType = mlir::IntegerType::get(&getContext(), 64);
+      // If the vector is a scalar or has a single element, return the element
       if (rank < 1 || type.getNumElements() == 1)
         return elemType;
+      // Otherwise, convert the vector to a flat vector type.
       unsigned sum = 1;
       for (unsigned i = 0; i < rank; i++) {
         sum *= type.getShape()[i];
@@ -789,12 +778,50 @@ struct ConvertXeGPUToXeVMPass
     });
     typeConverter.addConversion([&](xegpu::TensorDescType type) -> Type {
       if (type.isScattered()) {
-        return IndexType::get(&getContext());
+        return IntegerType::get(&getContext(), 64);
       }
       auto i32Type = IntegerType::get(&getContext(), 32);
       return VectorType::get(8, i32Type);
     });
 
+    auto ui64MaterializationCast = [](OpBuilder &builder, Type type,
+                                      ValueRange inputs,
+                                      Location loc) -> Value {
+      if (inputs.size() != 1)
+        return {};
+      auto input = inputs.front();
+      if (input.getType() == builder.getIntegerType(64, false)) {
+        Value cast =
+            index::CastUOp::create(builder, loc, builder.getIndexType(), input)
+                .getResult();
+        return arith::IndexCastOp::create(builder, loc, type, cast).getResult();
+      }
+      return {};
+    };
+
+    auto vector1DMaterializationCast = [](OpBuilder &builder, Type type,
+                                          ValueRange inputs,
+                                          Location loc) -> Value {
+      if (inputs.size() != 1)
+        return {};
+      auto input = inputs.front();
+      if (auto vecTy = dyn_cast<VectorType>(input.getType())) {
+        if (vecTy.getNumElements() == 1) {
+          // If the vector has a single element, return the element type.
+          Value cast =
+              vector::ExtractOp::create(builder, loc, input, 0).getResult();
+          if (vecTy.getElementType() == builder.getIndexType())
+            cast = arith::IndexCastOp::create(builder, loc, type, cast)
+                       .getResult();
+          return cast;
+        }
+      }
+      return {};
+    };
+    typeConverter.addSourceMaterialization(ui64MaterializationCast);
+    typeConverter.addSourceMaterialization(vector1DMaterializationCast);
+    typeConverter.addTargetMaterialization(ui64MaterializationCast);
+    typeConverter.addTargetMaterialization(vector1DMaterializationCast);
     ConversionTarget target(getContext());
     target.addLegalDialect<xevm::XeVMDialect, LLVM::LLVMDialect,
                            vector::VectorDialect, arith::ArithDialect,
