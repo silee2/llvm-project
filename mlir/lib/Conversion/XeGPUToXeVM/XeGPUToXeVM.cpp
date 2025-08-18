@@ -520,6 +520,10 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
       rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
       Value loaded =
           rewriter.create<LLVM::LoadOp>(loc, srcOrDstFlatVecTy, basePtrLLVM);
+      loaded.getDefiningOp()->setAttr("cache_control",
+                                      xevm::LoadCacheControlAttr::get(
+                                          ctxt, translateLoadXeGPUCacheHint(
+                                                     op.getL1Hint(), op.getL3Hint())));
       if (srcOrDstVecTy != srcOrDstFlatVecTy) {
         loaded =
             rewriter.create<vector::ShapeCastOp>(loc, srcOrDstVecTy, loaded);
@@ -543,7 +547,12 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
         srcFlatVec = rewriter.create<vector::ShapeCastOp>(
             loc, srcOrDstFlatVecTy, srcFlatVec);
       }
-      rewriter.create<LLVM::StoreOp>(loc, srcFlatVec, basePtrLLVM);
+      auto storeOp = LLVM::StoreOp::create(rewriter, loc, srcFlatVec, basePtrLLVM);
+      storeOp.getOperation()->setAttr(
+          "cache_control",
+          xevm::StoreCacheControlAttr::get(ctxt,
+                                          translateStoreXeGPUCacheHint(
+                                              op.getL1Hint(), op.getL3Hint())));
       rewriter.eraseOp(op);
     }
     return success();
