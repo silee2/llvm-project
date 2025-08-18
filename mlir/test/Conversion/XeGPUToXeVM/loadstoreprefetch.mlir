@@ -68,8 +68,9 @@ gpu.module @test {
 gpu.func @load_gather_memref_src_load_offset(%src: memref<256xf16>, %offset1: vector<1xindex>, %offset2: vector<1xindex>) {
   %1 = arith.constant dense<1>: vector<1xi1>
   %2 = xegpu.create_tdesc %src, %offset1 : memref<256xf16>, vector<1xindex> -> !xegpu.tensor_desc<1x8xf16, #xegpu.scatter_tdesc_attr<chunk_size = 8>>
-  %3 = xegpu.load %2, %offset2, %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}> : !xegpu.tensor_desc<1x8xf16, #xegpu.scatter_tdesc_attr<chunk_size = 8>>, vector<1xindex>, vector<1xi1> -> vector<8xf16>
+  %3 = xegpu.load %2[%offset2], %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}> : !xegpu.tensor_desc<1x8xf16, #xegpu.scatter_tdesc_attr<chunk_size = 8>>, vector<1xindex>, vector<1xi1> -> vector<8xf16>
   gpu.return
+}
 }
 // -----
 
@@ -112,6 +113,18 @@ gpu.func @store_scatter_memref_src_value_offset(%src: memref<256xf32>, %offset: 
 // -----
 
 gpu.module @test {
+// CHECK-LABEL: @store_scatter_memref_src_store_offset
+gpu.func @store_scatter_memref_src_store_offset(%src: memref<256xf32>, %offset: vector<1xindex>, %offset2: vector<1xindex>) {
+  %1 = arith.constant dense<1>: vector<1xi1>
+  %2 = arith.constant dense<2.9>: vector<1xf32>
+  %3 = xegpu.create_tdesc %src, %offset : memref<256xf32>, vector<1xindex> -> !xegpu.tensor_desc<1xf32, #xegpu.scatter_tdesc_attr<>>
+  xegpu.store %2, %3[%offset2], %1 <{l1_hint = #xegpu.cache_hint<write_back>, l2_hint = #xegpu.cache_hint<uncached>}> : vector<1xf32>, !xegpu.tensor_desc<1xf32, #xegpu.scatter_tdesc_attr<>>, vector<1xindex>, vector<1xi1>
+  gpu.return
+}
+}
+// -----
+
+gpu.module @test {
 // CHECK-LABEL: @prefetch_ui64_src_constant_offset
 gpu.func @prefetch_ui64_src_constant_offset(%src: ui64) {
   %0 = arith.constant dense<0> : vector<1xindex>
@@ -138,6 +151,16 @@ gpu.module @test {
 gpu.func @prefetch_memref_src_value_offset(%src: memref<256xf32>, %offset: vector<1xindex>) {
   %1 = xegpu.create_tdesc %src, %offset : memref<256xf32>, vector<1xindex> -> !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
   xegpu.prefetch %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}>: !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
+  gpu.return
+}
+}
+// -----
+
+gpu.module @test {
+// CHECK-LABEL: @prefetch_memref_src_prefetch_offset
+gpu.func @prefetch_memref_src_value_offset(%src: memref<256xf32>, %offset: vector<1xindex>, %offset2: vector<1xindex>) {
+  %1 = xegpu.create_tdesc %src, %offset : memref<256xf32>, vector<1xindex> -> !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
+  xegpu.prefetch %1[%offset2] <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}>: !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>, vector<1xindex>
   gpu.return
 }
 }

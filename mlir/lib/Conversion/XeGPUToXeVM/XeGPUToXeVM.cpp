@@ -206,8 +206,16 @@ class CreateNdDescToXeVMPattern
         }
         return val;
       };
-      offsetW = createOffset(rank - 1);
-      offsetH = createOffset(rank - 2);
+      auto offsets = op.getMixedOffsets();
+      if (offsets.size() == 2) {
+        offsetW = createOffset(rank - 1);
+        offsetH = createOffset(rank - 2);
+      } else {
+        offsetW = rewriter.create<arith::ConstantIntOp>(
+            loc, payloadElemTy, 0);
+        offsetH = rewriter.create<arith::ConstantIntOp>(
+            loc, payloadElemTy, 0);
+      }
       baseShapeW = rewriter.create<arith::ConstantIntOp>(
           loc, payloadElemTy, sourceMemrefTy.getDimSize(rank - 1));
       baseShapeH = rewriter.create<arith::ConstantIntOp>(
