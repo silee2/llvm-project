@@ -54,12 +54,22 @@ gpu.func @load_gather_memref_src_constant_offset(%src: memref<256xf32>) {
 
 gpu.module @test {
 // CHECK-LABEL: @load_gather_memref_src_value_offset
-gpu.func @load_gather_memref_src_value_offset(%src: memref<256xf16>, %indices: vector<1xindex>) {
+gpu.func @load_gather_memref_src_value_offset(%src: memref<256xf16>, %offset: vector<1xindex>) {
   %1 = arith.constant dense<1>: vector<1xi1>
-  %2 = xegpu.create_tdesc %src, %indices : memref<256xf16>, vector<1xindex> -> !xegpu.tensor_desc<1x8xf16, #xegpu.scatter_tdesc_attr<chunk_size = 8>>
+  %2 = xegpu.create_tdesc %src, %offset : memref<256xf16>, vector<1xindex> -> !xegpu.tensor_desc<1x8xf16, #xegpu.scatter_tdesc_attr<chunk_size = 8>>
   %3 = xegpu.load %2, %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}> : !xegpu.tensor_desc<1x8xf16, #xegpu.scatter_tdesc_attr<chunk_size = 8>>, vector<1xi1> -> vector<8xf16>
   gpu.return
 }
+}
+// -----
+
+gpu.module @test {
+// CHECK-LABEL: @load_gather_memref_src_load_offset
+gpu.func @load_gather_memref_src_load_offset(%src: memref<256xf16>, %offset1: vector<1xindex>, %offset2: vector<1xindex>) {
+  %1 = arith.constant dense<1>: vector<1xi1>
+  %2 = xegpu.create_tdesc %src, %offset1 : memref<256xf16>, vector<1xindex> -> !xegpu.tensor_desc<1x8xf16, #xegpu.scatter_tdesc_attr<chunk_size = 8>>
+  %3 = xegpu.load %2, %offset2, %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}> : !xegpu.tensor_desc<1x8xf16, #xegpu.scatter_tdesc_attr<chunk_size = 8>>, vector<1xindex>, vector<1xi1> -> vector<8xf16>
+  gpu.return
 }
 // -----
 
