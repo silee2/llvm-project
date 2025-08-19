@@ -167,10 +167,22 @@ gpu.func @store_scatter_memref_src_constant_offset(%src: memref<256xf32>) {
 
 gpu.module @test {
 // CHECK-LABEL: @store_scatter_memref_src_value_offset
+// CHECK-SAME: %[[ARG0:.*]]: memref<256xf32>, %[[ARG1:.*]]: vector<1xindex>
 gpu.func @store_scatter_memref_src_value_offset(%src: memref<256xf32>, %offset: vector<1xindex>) {
+  // CHECK: %[[VAR0:.*]] = vector.extract %[[ARG1]][0] : index from vector<1xindex>
+  // CHECK: %[[VAR1:.*]] = arith.index_cast %[[VAR0]] : index to i64
+  // CHECK: %[[CST:.*]] = arith.constant dense<true> : vector<1xi1>
+  // CHECK: %[[VAR2:.*]] = vector.extract %[[CST]][0] : i1 from vector<1xi1>
   %1 = arith.constant dense<1>: vector<1xi1>
+  // CHECK: %[[CST_0:.*]] = arith.constant dense<2.900000e+00> : vector<1xf32>
   %2 = arith.constant dense<2.9>: vector<1xf32>
+  // CHECK: %[[INTPTR:.*]] = memref.extract_aligned_pointer_as_index %[[ARG0]] : memref<256xf32> -> index
+  // CHECK: %[[VAR3:.*]] = arith.index_castui %[[INTPTR]] : index to i64
+  // CHECK: %[[VAR4:.*]] = arith.addi %[[VAR3]], %[[VAR1]] : i64
   %3 = xegpu.create_tdesc %src, %offset : memref<256xf32>, vector<1xindex> -> !xegpu.tensor_desc<1xf32, #xegpu.scatter_tdesc_attr<>>
+  // CHECK: %[[VAR5:.*]] = llvm.inttoptr %[[VAR4]] : i64 to !llvm.ptr<1>
+  // CHECK: scf.if %[[VAR2]] {
+  // CHECK:      llvm.store %[[CST_0]], %[[VAR5]] {cache_control = #xevm.store_cache_control<L1wb_L2uc_L3uc>} : vector<1xf32>, !llvm.ptr<1>
   xegpu.store %2, %3, %1 <{l1_hint = #xegpu.cache_hint<write_back>, l2_hint = #xegpu.cache_hint<uncached>}> : vector<1xf32>, !xegpu.tensor_desc<1xf32, #xegpu.scatter_tdesc_attr<>>, vector<1xi1>
   gpu.return
 }
@@ -179,10 +191,25 @@ gpu.func @store_scatter_memref_src_value_offset(%src: memref<256xf32>, %offset: 
 
 gpu.module @test {
 // CHECK-LABEL: @store_scatter_memref_src_store_offset
+// CHECK-SAME: %[[ARG0:.*]]: memref<256xf32>, %[[ARG1:.*]]: vector<1xindex>, %[[ARG2:.*]]: vector<1xindex>
 gpu.func @store_scatter_memref_src_store_offset(%src: memref<256xf32>, %offset: vector<1xindex>, %offset2: vector<1xindex>) {
+  // CHECK: %[[VAR0:.*]] = vector.extract %[[ARG2]][0] : index from vector<1xindex>
+  // CHECK: %[[VAR1:.*]] = arith.index_cast %[[VAR0]] : index to i64
+  // CHECK: %[[VAR2:.*]] = vector.extract %[[ARG1]][0] : index from vector<1xindex>
+  // CHECK: %[[VAR3:.*]] = arith.index_cast %[[VAR2]] : index to i64
+  // CHECK: %[[CST:.*]] = arith.constant dense<true> : vector<1xi1>
+  // CHECK: %[[VAR4:.*]] = vector.extract %[[CST]][0] : i1 from vector<1xi1>
   %1 = arith.constant dense<1>: vector<1xi1>
+  // CHECK: %[[CST_0:.*]] = arith.constant dense<2.900000e+00> : vector<1xf32>
   %2 = arith.constant dense<2.9>: vector<1xf32>
+  // CHECK: %[[INTPTR:.*]] = memref.extract_aligned_pointer_as_index %[[ARG0]] : memref<256xf32> -> index
+  // CHECK: %[[VAR5:.*]] = arith.index_castui %[[INTPTR]] : index to i64
+  // CHECK: %[[VAR6:.*]] = arith.addi %[[VAR5]], %[[VAR3]] : i64
   %3 = xegpu.create_tdesc %src, %offset : memref<256xf32>, vector<1xindex> -> !xegpu.tensor_desc<1xf32, #xegpu.scatter_tdesc_attr<>>
+  // CHECK: %[[VAR7:.*]] = arith.addi %[[VAR6]], %[[VAR1]] : i64
+  // CHECK: %[[VAR8:.*]] = llvm.inttoptr %[[VAR7]] : i64 to !llvm.ptr<1>
+  // CHECK: scf.if %[[VAR4]] {
+  // CHECK:      llvm.store %[[CST_0]], %[[VAR8]] {cache_control = #xevm.store_cache_control<L1wb_L2uc_L3uc>} : vector<1xf32>, !llvm.ptr<1>
   xegpu.store %2, %3[%offset2], %1 <{l1_hint = #xegpu.cache_hint<write_back>, l2_hint = #xegpu.cache_hint<uncached>}> : vector<1xf32>, !xegpu.tensor_desc<1xf32, #xegpu.scatter_tdesc_attr<>>, vector<1xindex>, vector<1xi1>
   gpu.return
 }
@@ -191,9 +218,18 @@ gpu.func @store_scatter_memref_src_store_offset(%src: memref<256xf32>, %offset: 
 
 gpu.module @test {
 // CHECK-LABEL: @prefetch_ui64_src_constant_offset
+// CHECK-SAME: %[[ARG0:.*]]: ui64
 gpu.func @prefetch_ui64_src_constant_offset(%src: ui64) {
+  // CHECK: %[[VAR0:.*]] = index.castu %[[ARG0]] : ui64 to index
+  // CHECK: %[[VAR1:.*]] = arith.index_cast %[[VAR0]] : index to i64
+  // CHECK: %[[CST:.*]] = arith.constant dense<0> : vector<1xindex>
+  // CHECK: %[[VAR2:.*]] = vector.extract %[[CST]][0] : index from vector<1xindex>
+  // CHECK: %[[VAR3:.*]] = arith.index_cast %[[VAR2]] : index to i64
   %0 = arith.constant dense<0> : vector<1xindex>
+  // CHECK: %[[VAR4:.*]] = arith.addi %[[VAR1]], %[[VAR3]] : i64
   %1 = xegpu.create_tdesc %src, %0 : ui64, vector<1xindex> -> !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
+  // CHECK: %[[VAR5:.*]] = llvm.inttoptr %[[VAR4]] : i64 to !llvm.ptr<1>
+  // CHECK: xevm.prefetch %[[VAR5]] <{cache_control = #xevm.load_cache_control<L1c_L2uc_L3uc>}> : (!llvm.ptr<1>)
   xegpu.prefetch %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}>: !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
   gpu.return
 }
@@ -202,9 +238,18 @@ gpu.func @prefetch_ui64_src_constant_offset(%src: ui64) {
 
 gpu.module @test {
 // CHECK-LABEL: @prefetch_memref_src_constant_offset
+// CHECK-SAME: %[[ARG0:.*]]: memref<256xf32>
 gpu.func @prefetch_memref_src_constant_offset(%src: memref<256xf32>) {
+  // CHECK: %[[CST:.*]] = arith.constant dense<0> : vector<1xindex>
+  // CHECK: %[[VAR0:.*]] = vector.extract %[[CST]][0] : index from vector<1xindex>
+  // CHECK: %[[VAR1:.*]] = arith.index_cast %[[VAR0]] : index to i64
   %0 = arith.constant dense<0> : vector<1xindex>
+  // CHECK: %[[INTPTR:.*]] = memref.extract_aligned_pointer_as_index %[[ARG0]] : memref<256xf32> -> index
+  // CHECK: %[[VAR2:.*]] = arith.index_castui %[[INTPTR]] : index to i64
+  // CHECK: %[[VAR3:.*]] = arith.addi %[[VAR2]], %[[VAR1]] : i64
   %1 = xegpu.create_tdesc %src, %0 : memref<256xf32>, vector<1xindex> -> !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
+  // CHECK: %[[VAR4:.*]] = llvm.inttoptr %[[VAR3]] : i64 to !llvm.ptr<1>
+  // CHECK: xevm.prefetch %[[VAR4]] <{cache_control = #xevm.load_cache_control<L1c_L2uc_L3uc>}> : (!llvm.ptr<1>)
   xegpu.prefetch %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}>: !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
   gpu.return
 }
@@ -213,8 +258,16 @@ gpu.func @prefetch_memref_src_constant_offset(%src: memref<256xf32>) {
 
 gpu.module @test {
 // CHECK-LABEL: @prefetch_memref_src_value_offset
+// CHECK-SAME: %[[ARG0:.*]]: memref<256xf32>, %[[ARG1:.*]]: vector<1xindex>
 gpu.func @prefetch_memref_src_value_offset(%src: memref<256xf32>, %offset: vector<1xindex>) {
+  // CHECK: %[[VAR0:.*]] = vector.extract %[[ARG1]][0] : index from vector<1xindex>
+  // CHECK: %[[VAR1:.*]] = arith.index_cast %[[VAR0]] : index to i64
+  // CHECK: %[[INTPTR:.*]] = memref.extract_aligned_pointer_as_index %[[ARG0]] : memref<256xf32> -> index
+  // CHECK: %[[VAR2:.*]] = arith.index_castui %[[INTPTR]] : index to i64
+  // CHECK: %[[VAR3:.*]] = arith.addi %[[VAR2]], %[[VAR1]] : i64
   %1 = xegpu.create_tdesc %src, %offset : memref<256xf32>, vector<1xindex> -> !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
+  // CHECK: %[[VAR4:.*]] = llvm.inttoptr %[[VAR3]] : i64 to !llvm.ptr<1>
+  // CHECK: xevm.prefetch %[[VAR4]] <{cache_control = #xevm.load_cache_control<L1c_L2uc_L3uc>}> : (!llvm.ptr<1>)
   xegpu.prefetch %1 <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}>: !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
   gpu.return
 }
@@ -223,8 +276,19 @@ gpu.func @prefetch_memref_src_value_offset(%src: memref<256xf32>, %offset: vecto
 
 gpu.module @test {
 // CHECK-LABEL: @prefetch_memref_src_prefetch_offset
+// CHECK-SAME: %[[ARG0:.*]]: memref<256xf32>, %[[ARG1:.*]]: vector<1xindex>, %[[ARG2:.*]]: vector<1xindex>
 gpu.func @prefetch_memref_src_prefetch_offset(%src: memref<256xf32>, %offset: vector<1xindex>, %offset2: vector<1xindex>) {
+  // CHECK: %[[VAR0:.*]] = vector.extract %[[ARG2]][0] : index from vector<1xindex>
+  // CHECK: %[[VAR1:.*]] = arith.index_cast %[[VAR0]] : index to i64
+  // CHECK: %[[VAR2:.*]] = vector.extract %[[ARG1]][0] : index from vector<1xindex>
+  // CHECK: %[[VAR3:.*]] = arith.index_cast %[[VAR2]] : index to i64
+  // CHECK: %[[INTPTR:.*]] = memref.extract_aligned_pointer_as_index %[[ARG0]] : memref<256xf32> -> index
+  // CHECK: %[[VAR4:.*]] = arith.index_castui %[[INTPTR]] : index to i64
+  // CHECK: %[[VAR5:.*]] = arith.addi %[[VAR4]], %[[VAR3]] : i64
   %1 = xegpu.create_tdesc %src, %offset : memref<256xf32>, vector<1xindex> -> !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>
+  // CHECK: %[[VAR6:.*]] = arith.addi %[[VAR5]], %[[VAR1]] : i64
+  // CHECK: %[[VAR7:.*]] = llvm.inttoptr %[[VAR6]] : i64 to !llvm.ptr<1>
+  // CHECK: xevm.prefetch %[[VAR7]] <{cache_control = #xevm.load_cache_control<L1c_L2uc_L3uc>}> : (!llvm.ptr<1>)
   xegpu.prefetch %1[%offset2] <{l1_hint = #xegpu.cache_hint<cached>, l2_hint = #xegpu.cache_hint<uncached>}>: !xegpu.tensor_desc<1x2xf32, #xegpu.scatter_tdesc_attr<chunk_size = 2>>, vector<1xindex>
   gpu.return
 }

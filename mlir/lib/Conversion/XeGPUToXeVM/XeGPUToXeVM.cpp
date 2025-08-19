@@ -570,6 +570,17 @@ class PrefetchToXeVMPattern : public OpConversionPattern<xegpu::PrefetchOp> {
     auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
         ctxt, getNumericXeVMAddrSpace(tdescTy.getMemorySpace()));
     Value basePtrI64 = adaptor.getSource();
+    Value offsets = adaptor.getOffsets();
+    if (offsets) {
+      VectorType offsetsVecTy = dyn_cast<VectorType>(offsets.getType());
+      if (offsetsVecTy) {
+        // Offset needs be scalar.
+        return rewriter.notifyMatchFailure(op,
+                                           "Expected offsets to be a scalar.");
+      } else {
+        basePtrI64 = rewriter.create<arith::AddIOp>(loc, basePtrI64, offsets);
+      }
+    }
     Value ptrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
     rewriter.create<xevm::PrefetchOp>(
