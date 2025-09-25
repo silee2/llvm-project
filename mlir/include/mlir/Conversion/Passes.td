@@ -1551,11 +1551,11 @@ def ConvertVectorToAMX : Pass<"convert-vector-to-amx"> {
 }
 
 //===----------------------------------------------------------------------===//
-// XeVMToLLVM
+// XeVMToLLVMOCL
 //===----------------------------------------------------------------------===//
 
-def ConvertXeVMToLLVMPass : Pass<"convert-xevm-to-llvm"> {
-  let summary = "Convert XeVM to LLVM dialect";
+def ConvertXeVMToLLVMOCLPass : Pass<"convert-xevm-to-llvmocl"> {
+  let summary = "Convert XeVM to LLVM dialect calling OpenCL extensions";
   let dependentDialects = ["LLVM::LLVMDialect"];
 }
 

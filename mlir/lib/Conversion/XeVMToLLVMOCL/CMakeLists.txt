@@ -1,8 +1,8 @@
-add_mlir_conversion_library(MLIRXeVMToLLVM
-  XeVMToLLVM.cpp
+add_mlir_conversion_library(MLIRXeVMToLLVMOCL
+  XeVMToLLVMOCL.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/XeVMToLLVM
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/XeVMToLLVMOCL
 
   DEPENDS
   MLIRConversionPassIncGen

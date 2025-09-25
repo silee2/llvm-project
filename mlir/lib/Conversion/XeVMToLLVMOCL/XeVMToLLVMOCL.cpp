@@ -1,4 +1,4 @@
-//===-- XeVMToLLVM.cpp - XeVM to LLVM dialect conversion --------*- C++ -*-===//
+//===-- XeVMToLLVMOCL.cpp - Convert XeVM to OpenCL extensions ---*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Conversion/XeVMToLLVM/XeVMToLLVM.h"
+#include "mlir/Conversion/XeVMToLLVMOCL/XeVMToLLVMOCL.h"
 
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
@@ -23,7 +23,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir {
-#define GEN_PASS_DEF_CONVERTXEVMTOLLVMPASS
+#define GEN_PASS_DEF_CONVERTXEVMTOLLVMOCLPASS
 #include "mlir/Conversion/Passes.h.inc"
 } // namespace mlir
 
@@ -640,8 +640,8 @@ class LLVMLoadStoreToOCLPattern : public OpConversionPattern<OpType> {
 // Pass Definition
 //===----------------------------------------------------------------------===//
 
-struct ConvertXeVMToLLVMPass
-    : public impl::ConvertXeVMToLLVMPassBase<ConvertXeVMToLLVMPass> {
+struct ConvertXeVMToLLVMOCLPass
+    : public impl::ConvertXeVMToLLVMOCLPassBase<ConvertXeVMToLLVMOCLPass> {
   using Base::Base;
 
   void getDependentDialects(DialectRegistry &registry) const override {
@@ -651,7 +651,7 @@ struct ConvertXeVMToLLVMPass
   void runOnOperation() override {
     ConversionTarget target(getContext());
     RewritePatternSet patterns(&getContext());
-    populateXeVMToLLVMConversionPatterns(target, patterns);
+    populateXeVMToLLVMOCLConversionPatterns(target, patterns);
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns))))
       signalPassFailure();
@@ -660,33 +660,11 @@ struct ConvertXeVMToLLVMPass
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// ConvertToLLVMPatternInterface implementation
-//===----------------------------------------------------------------------===//
-
-namespace {
-/// Implement the interface to convert XeVM to LLVM.
-struct XeVMToLLVMDialectInterface : public ConvertToLLVMPatternInterface {
-  using ConvertToLLVMPatternInterface::ConvertToLLVMPatternInterface;
-  void loadDependentDialects(MLIRContext *context) const final {
-    context->loadDialect<LLVM::LLVMDialect>();
-  }
-
-  /// Hook for derived dialect interface to provide conversion patterns
-  /// and mark dialect legal for the conversion target.
-  void populateConvertToLLVMConversionPatterns(
-      ConversionTarget &target, LLVMTypeConverter &typeConverter,
-      RewritePatternSet &patterns) const final {
-    populateXeVMToLLVMConversionPatterns(target, patterns);
-  }
-};
-} // namespace
-
-//===----------------------------------------------------------------------===//
 // Pattern Population
 //===----------------------------------------------------------------------===//
 
-void ::mlir::populateXeVMToLLVMConversionPatterns(ConversionTarget &target,
-                                                  RewritePatternSet &patterns) {
+void ::mlir::populateXeVMToLLVMOCLConversionPatterns(
+    ConversionTarget &target, RewritePatternSet &patterns) {
   target.addDynamicallyLegalDialect<LLVM::LLVMDialect>(
       [](Operation *op) { return !op->hasAttr("cache_control"); });
   target.addIllegalDialect<XeVMDialect>();
@@ -696,10 +674,4 @@ void ::mlir::populateXeVMToLLVMConversionPatterns(ConversionTarget &target,
                MMAToOCLPattern, MemfenceToOCLPattern, PrefetchToOCLPattern,
                LLVMLoadStoreToOCLPattern<LLVM::LoadOp>,
                LLVMLoadStoreToOCLPattern<LLVM::StoreOp>>(patterns.getContext());
-}
-
-void ::mlir::registerConvertXeVMToLLVMInterface(DialectRegistry &registry) {
-  registry.addExtension(+[](MLIRContext *ctx, XeVMDialect *dialect) {
-    dialect->addInterfaces<XeVMToLLVMDialectInterface>();
-  });
 }

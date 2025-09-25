@@ -1,8 +1,4 @@
-// RUN: mlir-opt --convert-xevm-to-llvm --split-input-file %s | FileCheck %s
-
-// Same below, but using the `ConvertToLLVMPatternInterface` entry point
-// and the generic `convert-to-llvm` pass.
-// RUN: mlir-opt --convert-to-llvm --split-input-file %s | FileCheck %s
+// RUN: mlir-opt --convert-xevm-to-llvmocl --split-input-file %s | FileCheck %s
 
 // CHECK-LABEL:      llvm.func spir_funccc @_Z41intel_sub_group_2d_block_read_16b_8r16x1cPU3AS1viiiDv2_iPt(
 // CHECK-SAME:   !llvm.ptr<1> {llvm.nonnull, llvm.readonly}, i32, i32, i32, vector<2xi32>,
