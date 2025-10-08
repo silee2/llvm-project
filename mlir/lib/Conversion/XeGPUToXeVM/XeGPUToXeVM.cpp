@@ -7,6 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/XeGPUToXeVM/XeGPUToXeVM.h"
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/LLVMIR/XeVMDialect.h"
 
@@ -879,25 +883,24 @@ struct ConvertXeGPUToXeVMPass
       }
       return {};
     };
-    typeConverter.addSourceMaterialization(memrefMaterializationCast);
-    typeConverter.addSourceMaterialization(ui64MaterializationCast);
-    typeConverter.addSourceMaterialization(ui32MaterializationCast);
-    typeConverter.addSourceMaterialization(vectorMaterializationCast);
     typeConverter.addTargetMaterialization(memrefMaterializationCast);
     typeConverter.addTargetMaterialization(ui32MaterializationCast);
     typeConverter.addTargetMaterialization(ui64MaterializationCast);
     typeConverter.addTargetMaterialization(vectorMaterializationCast);
     ConversionTarget target(getContext());
-    target.addLegalDialect<xevm::XeVMDialect, LLVM::LLVMDialect,
-                           vector::VectorDialect, arith::ArithDialect,
-                           memref::MemRefDialect, gpu::GPUDialect,
-                           index::IndexDialect>();
+    target.addLegalDialect<xevm::XeVMDialect, LLVM::LLVMDialect>();
     target.addIllegalDialect<xegpu::XeGPUDialect>();
 
     RewritePatternSet patterns(&getContext());
     populateXeGPUToXeVMConversionPatterns(typeConverter, patterns);
-    scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
-                                                         patterns, target);
+
+    LLVMTypeConverter llvmTypeConverter(&getContext());
+    arith::populateArithToLLVMConversionPatterns(llvmTypeConverter, patterns);
+    populateFinalizeMemRefToLLVMConversionPatterns(llvmTypeConverter,
+                                                    patterns);
+    index::populateIndexToLLVMConversionPatterns(llvmTypeConverter, patterns);
+    populateVectorToLLVMConversionPatterns(llvmTypeConverter, patterns);
+    scf::populateSCFStructuralTypeConversions(llvmTypeConverter, patterns);
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns))))
       signalPassFailure();
