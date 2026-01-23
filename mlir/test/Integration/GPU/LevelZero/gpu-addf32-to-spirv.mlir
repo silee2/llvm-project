@@ -2,18 +2,33 @@
 // RUN: | mlir-runner \
 // RUN:   --shared-libs=%mlir_levelzero_runtime \
 // RUN:   --shared-libs=%mlir_runner_utils \
-// RUN:   --entry-point-result=void \
+// RUN:   --entry-point-result=void --entry-point-args=1.1,2.2 \
 // RUN: | FileCheck %s
 
 module @add attributes {gpu.container_module} {
   memref.global "private" constant @__constant_2x2x2xf32_0 : memref<2x2x2xf32> = dense<[[[1.1, 2.2], [3.3, 4.4]], [[5.5, 6.6], [7.7, 8.8 ]]]>
   memref.global "private" constant @__constant_2x2x2xf32 : memref<2x2x2xf32> = dense<[[[1.2, 2.3], [4.5, 5.8]], [[7.2, 8.3], [10.5, 11.8]]]>
-  func.func @main() {
+  func.func @main(%arg0: f32, %arg1: f32) -> () {
     %0 = memref.get_global @__constant_2x2x2xf32 : memref<2x2x2xf32>
     %1 = memref.get_global @__constant_2x2x2xf32_0 : memref<2x2x2xf32>
-    %2 = call @test(%0, %1) : (memref<2x2x2xf32>, memref<2x2x2xf32>) -> memref<2x2x2xf32>
+    %a = memref.alloc() : memref<2x2x2xf32>
+    %b = memref.alloc() : memref<2x2x2xf32>
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    scf.for %i = %c0 to %c2 step %c1 {
+      scf.for %j = %c0 to %c2 step %c1 {
+        scf.for %k = %c0 to %c2 step %c1 {
+          memref.store %arg0, %a[%i, %j, %k] : memref<2x2x2xf32>
+          memref.store %arg1, %b[%i, %j, %k] : memref<2x2x2xf32>
+        }
+      }
+    }
+    %2 = call @test(%a, %b) : (memref<2x2x2xf32>, memref<2x2x2xf32>) -> memref<2x2x2xf32>
     %cast = memref.cast %2 : memref<2x2x2xf32> to memref<*xf32>
     call @printMemrefF32(%cast) : (memref<*xf32>) -> ()
+    memref.dealloc %a : memref<2x2x2xf32>
+    memref.dealloc %b : memref<2x2x2xf32>
     return
   }
   func.func private @printMemrefF32(memref<*xf32>)
