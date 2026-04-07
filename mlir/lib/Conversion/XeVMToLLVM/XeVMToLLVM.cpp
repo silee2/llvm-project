@@ -1084,48 +1084,50 @@ class TruncfToOCLPattern : public OpConversionPattern<TruncfOp> {
   matchAndRewrite(TruncfOp op, TruncfOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Supported source and result types are resticted for now.
-    if (op.getSrcEtype().getEtype() != TruncfSrcElemTypes::F16)
-      return failure();
-    if (op.getDstEtype().getEtype() != TruncfDstElemTypes::BF8)
-      return failure();
+    auto srcEtype = op.getSrcEtype().getEtype();
+    auto dstEtype = op.getDstEtype().getEtype();
     if (auto vecSrcTy = dyn_cast<VectorType>(op.getSrc().getType())) {
       if (vecSrcTy.getNumElements() != 16)
-        return failure();
-      if (!vecSrcTy.getElementType().isF16())
-        return failure();
+        return rewriter.notifyMatchFailure(
+            op, "Only vector src of 16 elements is supported");
     } else {
-      return failure();
+      return rewriter.notifyMatchFailure(op, "Scalar src is not supported.");
     }
     if (auto vecDstTy = dyn_cast<VectorType>(op.getDst().getType())) {
       if (vecDstTy.getNumElements() != 16)
-        return failure();
-      if (!vecDstTy.getElementType().isInteger(8))
-        return failure();
+        return rewriter.notifyMatchFailure(
+            op, "Only vector dst of 16 elements is supported");
     } else {
-      return failure();
+      return rewriter.notifyMatchFailure(op, "Scalar dst is not supported.");
     }
-    auto firstHalf =
-        LLVM::ShuffleVectorOp::create(rewriter, op.getLoc(), op.getSrc(),
-                                      op.getSrc(), {0, 1, 2, 3, 4, 5, 6, 7});
-    auto secondHalf = LLVM::ShuffleVectorOp::create(
-        rewriter, op.getLoc(), op.getSrc(), op.getSrc(),
-        {8, 9, 10, 11, 12, 13, 14, 15});
-    auto firstHalfCasted = LLVM::BitcastOp::create(
-        rewriter, op.getLoc(), VectorType::get(16, rewriter.getI8Type()),
-        firstHalf);
-    auto secondHalfCasted = LLVM::BitcastOp::create(
-        rewriter, op.getLoc(), VectorType::get(16, rewriter.getI8Type()),
-        secondHalf);
-    auto resFirstHalf = LLVM::ShuffleVectorOp::create(
-        rewriter, op.getLoc(), firstHalfCasted, firstHalfCasted,
-        {1, 3, 5, 7, 9, 11, 13, 15});
-    auto resSecondHalf = LLVM::ShuffleVectorOp::create(
-        rewriter, op.getLoc(), secondHalfCasted, secondHalfCasted,
-        {1, 3, 5, 7, 9, 11, 13, 15});
-    auto res = LLVM::ShuffleVectorOp::create(
-        rewriter, op.getLoc(), resFirstHalf, resSecondHalf,
-        {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
-    rewriter.replaceOp(op, res);
+    if (srcEtype == TruncfSrcElemTypes::F16 &&
+        dstEtype == TruncfDstElemTypes::BF8) {
+      auto firstHalf =
+          LLVM::ShuffleVectorOp::create(rewriter, op.getLoc(), op.getSrc(),
+                                        op.getSrc(), {0, 1, 2, 3, 4, 5, 6, 7});
+      auto secondHalf = LLVM::ShuffleVectorOp::create(
+          rewriter, op.getLoc(), op.getSrc(), op.getSrc(),
+          {8, 9, 10, 11, 12, 13, 14, 15});
+      auto firstHalfCasted = LLVM::BitcastOp::create(
+          rewriter, op.getLoc(), VectorType::get(16, rewriter.getI8Type()),
+          firstHalf);
+      auto secondHalfCasted = LLVM::BitcastOp::create(
+          rewriter, op.getLoc(), VectorType::get(16, rewriter.getI8Type()),
+          secondHalf);
+      auto resFirstHalf = LLVM::ShuffleVectorOp::create(
+          rewriter, op.getLoc(), firstHalfCasted, firstHalfCasted,
+          {1, 3, 5, 7, 9, 11, 13, 15});
+      auto resSecondHalf = LLVM::ShuffleVectorOp::create(
+          rewriter, op.getLoc(), secondHalfCasted, secondHalfCasted,
+          {1, 3, 5, 7, 9, 11, 13, 15});
+      auto res = LLVM::ShuffleVectorOp::create(
+          rewriter, op.getLoc(), resFirstHalf, resSecondHalf,
+          {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
+      rewriter.replaceOp(op, res);
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "Unsupported src, dst element type pair.");
+    }
     return success();
   }
 };
