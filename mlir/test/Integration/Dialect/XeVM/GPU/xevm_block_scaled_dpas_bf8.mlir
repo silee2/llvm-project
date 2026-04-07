@@ -10,11 +10,30 @@
 module @gemm attributes {gpu.container_module} {
   gpu.module @kernel {
     gpu.func @block_scaled_dpas_bf8(%a: !llvm.ptr<1>, %b: !llvm.ptr<1>, %c: !llvm.ptr<1>) kernel {
-      %base_width_a = arith.constant 32 : i32
+      // TODO: some values are related can be derived from others like the following.
+      // %M = arith.constant 8 : i32
+      // %N = arith.constant 16 : i32
+      // %K = arith.constant 8 : i32
+      // %load_a_elem_bitwidth = arith.constant 32 : i32
+      // %a_elem_bitwidth = arith.constant 16 : i32
+      // %mx_elem_bitwidth = arith.constant 8 : i32
+      // %load_a_pack_ratio = arith.divsi %load_a_elem_bitwidth, %a_elem_bitwidth : i32
+      // %mx_pack_ratio = arith.divsi %load_a_elem_bitwidth, %mx_elem_bitwidth : i32
+      // %load_a_K = arith.muli %K, %load_a_pack_ratio : i32
+      // %load_b_K = arith.muli %K, %mx_pack_ratio : i32
+
+      %base_width_a = arith.constant 16 : i32
       %base_height_a = arith.constant 8 : i32
-      %base_pitch_a = arith.constant 32 : i32
+      %base_pitch_a = arith.constant 16 : i32
       %x = arith.constant 0 : i32
       %y = arith.constant 0 : i32
+      // A is loaded as fp16, but it will be truncated to bf8 before MMA.
+      // The blockload2d op need to be configured to load with double the width
+      // in number of elements or double the element bitwidth.
+      // block load does not support width of 32 elements of 16 bit,
+      // but it supports width of 16 elements of 32 bit.
+      // So the configuration is set to load 8 elements of 32 bits per lane and then
+      // bitcast to 16 elements of fp16 element type.
       %loaded_a = xevm.blockload2d %a, %base_width_a, %base_height_a, %base_pitch_a, %x, %y
           <{elem_size_in_bits=32 : i32, tile_width=16 : i32, tile_height=8 : i32, v_blocks=1 : i32,
             transpose=false, pack_register=false}> : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<8xi32>
@@ -25,6 +44,9 @@ module @gemm attributes {gpu.container_module} {
       %base_width_b = arith.constant 16 : i32
       %base_height_b = arith.constant 32 : i32
       %base_pitch_b = arith.constant 16 : i32
+      // B is already in bf8, and it will be used as is for MMA.
+      // So the blockload2d op is configured to load normally with 8bit element bitwidth
+      // with pack_register request.
       %loaded_b = xevm.blockload2d %b, %base_width_b, %base_height_b, %base_pitch_b, %x, %y
           <{elem_size_in_bits=8 : i32, tile_width=16 : i32, tile_height=32 : i32, v_blocks=1 : i32,
             transpose=false, pack_register=true}> : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<8xi32>
@@ -88,31 +110,30 @@ module @gemm attributes {gpu.container_module} {
   }
 
   func.func @main() attributes {llvm.emit_c_interface} {
-    %A = memref.alloc() : memref<8x32xf16>
+
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c8 = arith.constant 8 : index
     %c16 = arith.constant 16 : index
     %c32 = arith.constant 32 : index
-    %c0f32 = arith.constant 0.0 : f32
+    %c1f16 = arith.constant 1.0 : f16
     %c1bf8 = arith.constant 1.0 : f8E5M2
-    %c1mxscale = arith.constant 1.0 :f8E8M0FNU
+    %c0f32 = arith.constant 0.0 : f32
 
+    %A = memref.alloc() : memref<8x32xf16>
     scf.for %i = %c0 to %c8 step %c1 {
       scf.for %j = %c0 to %c16 step %c1 {
-        %row_idx = arith.index_cast %i : index to i32
-        %row = arith.sitofp %row_idx : i32 to f16
-        memref.store %row, %A[%i, %j] : memref<8x32xf16>
+        memref.store %c1f16, %A[%i, %j] : memref<8x32xf16>
       }
     }
+
     %B = memref.alloc() : memref<32x16xf8E5M2>
     scf.for %i = %c0 to %c32 step %c1 {
       scf.for %j = %c0 to %c16 step %c1 {
-        //%col_idx = arith.index_cast %j : index to i32
-        //%col = arith.sitofp %col_idx : i32 to f16
         memref.store %c1bf8, %B[%i, %j] : memref<32x16xf8E5M2>
       }
     }
+
     %C = memref.alloc() : memref<8x16xf32>
     scf.for %i = %c0 to %c8 step %c1 {
       scf.for %j = %c0 to %c16 step %c1 {
