@@ -52,16 +52,16 @@ module @gemm attributes {gpu.container_module} {
             transpose=false, pack_register=true}> : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<8xi32>
 
       // Note: scale is not computed. Constant values are used for simplifying the example
-      %scale_a = arith.constant dense<1.0> : vector<2xf8E8M0FNU>
-      %scale_b = arith.constant dense<1.0> : vector<2xf8E8M0FNU>
-      %scale_a_casted = vector.bitcast %scale_a : vector<2xf8E8M0FNU> to vector<2xi8>
-      %scale_b_casted = vector.bitcast %scale_b : vector<2xf8E8M0FNU> to vector<2xi8>
+      %scale_a = arith.constant 1.0 : f8E8M0FNU
+      %scale_b = arith.constant 1.0 : f8E8M0FNU
+      %scale_a_casted = arith.bitcast %scale_a : f8E8M0FNU to i8
+      %scale_b_casted = arith.bitcast %scale_b : f8E8M0FNU to i8
       // Note: c is not loaded. constant vector is used for simplifying the example
       %loaded_c_casted = arith.constant dense<0.0> : vector<8xf32>
 
       %c_result = xevm.mma_mx %a_trunc_casted, %loaded_b, %scale_a_casted, %scale_b_casted, %loaded_c_casted
           {shape=<m=8, n=16, k=32>, types=<d=f32, a=bf8, b=bf8, c=f32>}
-          : (vector<8xi16>, vector<8xi32>, vector<2xi8>, vector<2xi8>, vector<8xf32>) -> vector<8xf32>
+          : (vector<8xi16>, vector<8xi32>, i8, i8, vector<8xf32>) -> vector<8xf32>
       %c_result_casted = vector.bitcast %c_result : vector<8xf32> to vector<8xi32>
 
       %base_width_c = arith.constant 16 : i32
