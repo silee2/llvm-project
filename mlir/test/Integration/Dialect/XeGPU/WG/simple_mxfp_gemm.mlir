@@ -94,6 +94,7 @@ module @gemm attributes {gpu.container_module} {
     %c1 = arith.constant 1 : index
     %c8 = arith.constant 8 : index
     %c16 = arith.constant 16 : index
+    %c512 = arith.constant 512 : index
 
     %memref_a = gpu.alloc() : memref<1024x4096xf4E2M1FN>
     gpu.memcpy %memref_a, %a : memref<1024x4096xf4E2M1FN>, memref<1024x4096xf4E2M1FN>
@@ -110,7 +111,7 @@ module @gemm attributes {gpu.container_module} {
     %memref_b_scale = gpu.alloc() : memref<128x1024xf8E8M0FNU>
     gpu.memcpy %memref_b_scale, %b_scale : memref<128x1024xf8E8M0FNU>, memref<128x1024xf8E8M0FNU>
 
-    gpu.launch_func @kernel::@gemm_mxfp blocks in (%c8, %c8, %c1) threads in (%c16, %c1, %c1)
+    gpu.launch_func @kernel::@gemm_mxfp blocks in (%c8, %c8, %c1) threads in (%c512, %c1, %c1)
     args(%memref_a : memref<1024x4096xf4E2M1FN>, %memref_b : memref<2048x1024xi8>, %memref_a_scale : memref<1024x128xf8E8M0FNU>, %memref_b_scale : memref<128x1024xf8E8M0FNU>, %memref_c : memref<1024x1024xf32>)
     gpu.dealloc %memref_a : memref<1024x4096xf4E2M1FN>
     gpu.dealloc %memref_b : memref<2048x1024xi8>
@@ -197,7 +198,7 @@ module @gemm attributes {gpu.container_module} {
     return
   }
   func.func private @verifyMemRefF32(%acutal : memref<*xf32>, %expected : memref<*xf32>) -> i64 attributes { llvm.emit_c_interface }
-  func.func private @printI64(%num : i64) attributes { llvm.emit_c_interface }
+  func.func private @printI64(%num : i64)
   //func.func private @printMemrefF32(%ptr : memref<*xf32>) attributes { llvm.emit_c_interface }
 
 }
