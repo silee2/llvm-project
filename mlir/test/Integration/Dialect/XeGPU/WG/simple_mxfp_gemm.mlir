@@ -132,7 +132,6 @@ module @gemm attributes {gpu.container_module} {
     %c2K = arith.constant 2048 : index
     %c4K = arith.constant 4096 : index
     %c512K = arith.constant 524288 : index
-    %c1e2m1 = arith.constant 1.0 : f4E2M1FN
     %c1packed_e2m1 = arith.constant 0x22 : i8
     %c0f32 = arith.constant 0.0 : f32
     %c1f8E8M0FNU = arith.constant 1.0 : f8E8M0FNU
