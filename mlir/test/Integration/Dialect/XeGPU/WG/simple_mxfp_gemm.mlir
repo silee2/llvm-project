@@ -27,6 +27,8 @@ module @gemm attributes {gpu.container_module} {
       %kbound = arith.constant 4096 : index
       %b_kfactor = arith.constant 2 : index
       %scale_kfactor = arith.constant 32 : index
+      %kbstep = arith.constant 256 : index
+      %kscalestep = arith.constant 16 : index
       %block_id_x = gpu.block_id x
       %block_id_y = gpu.block_id y
       %m = arith.muli %block_id_x, %mstep : index
@@ -41,13 +43,8 @@ module @gemm attributes {gpu.container_module} {
       %cd_tdesc = xegpu.create_nd_tdesc %arg4 : memref<256x256xf32> -> !xegpu.tensor_desc<32x32xf32, #c>
       %c_init = xegpu.load_nd %cd_tdesc[%m, %n] {layout = #c}: !xegpu.tensor_desc<32x32xf32, #c> -> vector<32x32xf32>
 
-      %d = scf.for %k = %c0 to %kbound step %kstep
-        iter_args(%c_partial = %c_init) -> (vector<32x32xf32>) {
-        // b, a_scale and b_scale take different steps compared to a
-        // compute adjusted k index for those tiles.
-        %kb = arith.divsi %k, %b_kfactor : index
-        %kscale = arith.divsi %k, %scale_kfactor : index
-
+      %res:3 = scf.for %k = %c0 to %kbound step %kstep
+        iter_args(%c_partial = %c_init, %kb = %c0, %kscale = %c0) -> (vector<32x32xf32>, index, index) {
         // load_nd with offset
         %a = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a}: !xegpu.tensor_desc<32x512xf4E2M1FN> -> vector<32x512xf4E2M1FN>
         %bp = xegpu.load_nd %bp_tdesc[%kb, %n] {layout = #b_packed}: !xegpu.tensor_desc<256x32xi8> -> vector<256x32xi8>
@@ -56,8 +53,8 @@ module @gemm attributes {gpu.container_module} {
         %b_bitcast = vector.bitcast %bp : vector<256x32xi8> to vector<256x64xf4E2M1FN>
 
         // De-interleave: extract even and odd columns
-        // Even columns (indices 0, 2, 4, ..., 254) -> first half
-        // Odd columns (indices 1, 3, 5, ..., 255) -> second half
+        // Even columns (indices 0, 2, 4, ..., 62) -> first half
+        // Odd columns (indices 1, 3, 5, ..., 63) -> second half
         %b_even, %b_odd = vector.deinterleave %b_bitcast : vector<256x64xf4E2M1FN> -> vector<256x32xf4E2M1FN>
 
         // Reconstruct 512x32 by interleaving even/odd rows:
@@ -81,11 +78,15 @@ module @gemm attributes {gpu.container_module} {
                vector<32x16xf8E8M0FNU>, vector<16x32xf8E8M0FNU>)
             -> vector<32x32xf32>
 
-        scf.yield %new_c_partial : vector<32x32xf32>
+        // b, a_scale and b_scale take different steps compared to a
+        // compute adjusted k index for those tiles.
+        %new_kb = arith.addi %kb, %kbstep : index
+        %new_kscale = arith.addi %kscale, %kscalestep : index
+        scf.yield %new_c_partial, %new_kb, %new_kscale : vector<32x32xf32>, index, index
       }
 
       // store_nd with offset
-      xegpu.store_nd %d, %cd_tdesc[%m, %n] {layout = #c} : vector<32x32xf32>, !xegpu.tensor_desc<32x32xf32, #c>
+      xegpu.store_nd %res#0, %cd_tdesc[%m, %n] {layout = #c} : vector<32x32xf32>, !xegpu.tensor_desc<32x32xf32, #c>
       gpu.return
     }
   }
