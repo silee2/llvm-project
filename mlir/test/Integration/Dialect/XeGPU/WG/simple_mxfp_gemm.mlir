@@ -7,12 +7,14 @@
 // RUN: | FileCheck %s
 
 // XFAIL: *
-#a = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 512], inst_data = [8, 64], lane_layout = [1, 16], lane_data = [1, 1]>
-#b_packed = #xegpu.layout<sg_layout = [2, 2], sg_data = [256, 16], inst_data = [32, 16], lane_layout = [1, 16], lane_data = [4, 1]>
-#b = #xegpu.layout<sg_layout = [2, 2], sg_data = [512, 16], inst_data = [64, 16], lane_layout = [1, 16], lane_data = [8, 1]>
-#c = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 16], inst_data = [8, 16], lane_layout = [1, 16], lane_data = [1, 1]>
-#a_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 16], inst_data = [8, 2], lane_layout = [8, 1], lane_data = [1, 1]>
-#b_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 16], inst_data = [2, 16], lane_layout = [1, 16], lane_data = [1, 1]>
+#a = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 1024], inst_data = [16, 64], lane_layout = [1, 16], lane_data = [1, 1]>
+#b_packed = #xegpu.layout<sg_layout = [2, 2], sg_data = [512, 16], inst_data = [32, 16], lane_layout = [1, 16], lane_data = [4, 1]>
+#b = #xegpu.layout<sg_layout = [2, 2], sg_data = [1024, 16], inst_data = [64, 16], lane_layout = [1, 16], lane_data = [8, 1]>
+#c = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 16], inst_data = [16, 16], lane_layout = [1, 16], lane_data = [1, 1]>
+#a_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 32], inst_data = [16, 32], lane_layout = [16, 1], lane_data = [1, 1]>
+#b_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [32, 16], inst_data = [32, 16], lane_layout = [1, 16], lane_data = [1, 1]>
+#dpas_a_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 32], inst_data = [16, 2], lane_layout = [16, 1], lane_data = [1, 1]>
+#dpas_b_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [32, 16], inst_data = [2, 16], lane_layout = [1, 16], lane_data = [1, 1]>
 
 
 module @gemm attributes {gpu.container_module} {
@@ -21,23 +23,21 @@ module @gemm attributes {gpu.container_module} {
       %c0 = arith.constant 0 : index
       %mstep = arith.constant 32 : index
       %nstep = arith.constant 32 : index
-      %kstep = arith.constant 512 : index
+      %kstep = arith.constant 1024 : index
       %mbound = arith.constant 256 : index
       %nbound = arith.constant 256 : index
       %kbound = arith.constant 4096 : index
-      %b_kfactor = arith.constant 2 : index
-      %scale_kfactor = arith.constant 32 : index
-      %kbstep = arith.constant 256 : index
-      %kscalestep = arith.constant 16 : index
+      %kbstep = arith.constant 512 : index
+      %kscalestep = arith.constant 32 : index
       %block_id_x = gpu.block_id x
       %block_id_y = gpu.block_id y
       %m = arith.muli %block_id_x, %mstep : index
       %n = arith.muli %block_id_y, %nstep : index
 
-      %a_tdesc = xegpu.create_nd_tdesc %arg0 : memref<256x4096xf4E2M1FN> -> !xegpu.tensor_desc<32x512xf4E2M1FN>
-      %bp_tdesc = xegpu.create_nd_tdesc %arg1 : memref<2048x256xi8> -> !xegpu.tensor_desc<256x32xi8>
-      %a_scale_tdesc = xegpu.create_nd_tdesc %arg2 : memref<256x128xf8E8M0FNU> -> !xegpu.tensor_desc<32x16xf8E8M0FNU>
-      %b_scale_tdesc = xegpu.create_nd_tdesc %arg3 : memref<128x256xf8E8M0FNU> -> !xegpu.tensor_desc<16x32xf8E8M0FNU>
+      %a_tdesc = xegpu.create_nd_tdesc %arg0 : memref<256x4096xf4E2M1FN> -> !xegpu.tensor_desc<32x1024xf4E2M1FN>
+      %bp_tdesc = xegpu.create_nd_tdesc %arg1 : memref<2048x256xi8> -> !xegpu.tensor_desc<512x32xi8>
+      %a_scale_tdesc = xegpu.create_nd_tdesc %arg2 : memref<256x128xf8E8M0FNU> -> !xegpu.tensor_desc<32x32xf8E8M0FNU>
+      %b_scale_tdesc = xegpu.create_nd_tdesc %arg3 : memref<128x256xf8E8M0FNU> -> !xegpu.tensor_desc<32x32xf8E8M0FNU>
 
       // Load initial C
       %cd_tdesc = xegpu.create_nd_tdesc %arg4 : memref<256x256xf32> -> !xegpu.tensor_desc<32x32xf32, #c>
@@ -46,36 +46,36 @@ module @gemm attributes {gpu.container_module} {
       %res:3 = scf.for %k = %c0 to %kbound step %kstep
         iter_args(%c_partial = %c_init, %kb = %c0, %kscale = %c0) -> (vector<32x32xf32>, index, index) {
         // load_nd with offset
-        %a = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a}: !xegpu.tensor_desc<32x512xf4E2M1FN> -> vector<32x512xf4E2M1FN>
-        %bp = xegpu.load_nd %bp_tdesc[%kb, %n] {layout = #b_packed}: !xegpu.tensor_desc<256x32xi8> -> vector<256x32xi8>
+        %a = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a}: !xegpu.tensor_desc<32x1024xf4E2M1FN> -> vector<32x1024xf4E2M1FN>
+        %bp = xegpu.load_nd %bp_tdesc[%kb, %n] {layout = #b_packed}: !xegpu.tensor_desc<512x32xi8> -> vector<512x32xi8>
 
-        // Bitcast to fp4: 256x32 uint8 -> 256x64 fp4 (each uint8 holds 2 fp4 values)
-        %b_bitcast = vector.bitcast %bp : vector<256x32xi8> to vector<256x64xf4E2M1FN>
+        // Bitcast to fp4: 512x32 uint8 -> 512x64 fp4 (each uint8 holds 2 fp4 values)
+        %b_bitcast = vector.bitcast %bp : vector<512x32xi8> to vector<512x64xf4E2M1FN>
 
         // De-interleave: extract even and odd columns
         // Even columns (indices 0, 2, 4, ..., 62) -> first half
         // Odd columns (indices 1, 3, 5, ..., 63) -> second half
-        %b_even, %b_odd = vector.deinterleave %b_bitcast : vector<256x64xf4E2M1FN> -> vector<256x32xf4E2M1FN>
+        %b_even, %b_odd = vector.deinterleave %b_bitcast : vector<512x64xf4E2M1FN> -> vector<512x32xf4E2M1FN>
 
-        // Reconstruct 512x32 by interleaving even/odd rows:
+        // Reconstruct 1024x32 by interleaving even/odd rows:
         // Transpose to move the row dim to trailing position, interleave, transpose back.
-        %b_even_t = vector.transpose %b_even, [1, 0] : vector<256x32xf4E2M1FN> to vector<32x256xf4E2M1FN>
-        %b_odd_t = vector.transpose %b_odd, [1, 0] : vector<256x32xf4E2M1FN> to vector<32x256xf4E2M1FN>
-        %b_interleaved = vector.interleave %b_even_t, %b_odd_t : vector<32x256xf4E2M1FN> -> vector<32x512xf4E2M1FN>
-        %b = vector.transpose %b_interleaved, [1, 0] : vector<32x512xf4E2M1FN> to vector<512x32xf4E2M1FN>
+        %b_even_t = vector.transpose %b_even, [1, 0] : vector<512x32xf4E2M1FN> to vector<32x512xf4E2M1FN>
+        %b_odd_t = vector.transpose %b_odd, [1, 0] : vector<512x32xf4E2M1FN> to vector<32x512xf4E2M1FN>
+        %b_interleaved = vector.interleave %b_even_t, %b_odd_t : vector<32x512xf4E2M1FN> -> vector<32x1024xf4E2M1FN>
+        %b = vector.transpose %b_interleaved, [1, 0] : vector<32x1024xf4E2M1FN> to vector<1024x32xf4E2M1FN>
 
-        %scale_a = xegpu.load_nd %a_scale_tdesc[%m, %kscale] {layout = #a_scale}: !xegpu.tensor_desc<32x16xf8E8M0FNU> -> vector<32x16xf8E8M0FNU>
+        %scale_a = xegpu.load_nd %a_scale_tdesc[%m, %kscale] {layout = #a_scale}: !xegpu.tensor_desc<32x32xf8E8M0FNU> -> vector<32x32xf8E8M0FNU>
 
-        %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] {layout = #b_scale}: !xegpu.tensor_desc<16x32xf8E8M0FNU> -> vector<16x32xf8E8M0FNU>
+        %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] {layout = #b_scale}: !xegpu.tensor_desc<32x32xf8E8M0FNU> -> vector<32x32xf8E8M0FNU>
         %new_c_partial = xegpu.dpas_mx %a, %b, %c_partial scale_a = %scale_a scale_b = %scale_b
               {layout_a = #a,
                layout_b = #b,
                layout_cd = #c,
-               layout_a_scale = #a_scale,
-               layout_b_scale = #b_scale}
-            : (vector<32x512xf4E2M1FN>, vector<512x32xf4E2M1FN>,
+               layout_a_scale = #dpas_a_scale,
+               layout_b_scale = #dpas_b_scale}
+            : (vector<32x1024xf4E2M1FN>, vector<1024x32xf4E2M1FN>,
                vector<32x32xf32>,
-               vector<32x16xf8E8M0FNU>, vector<16x32xf8E8M0FNU>)
+               vector<32x32xf8E8M0FNU>, vector<32x32xf8E8M0FNU>)
             -> vector<32x32xf32>
 
         // b, a_scale and b_scale take different steps compared to a
