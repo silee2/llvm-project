@@ -9,6 +9,8 @@
 #include "mlir/Dialect/XeGPU/Transforms/Passes.h"
 
 #include "mlir/Dialect/Index/IR/IndexDialect.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorTransforms.h"
 #include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "mlir/Dialect/XeGPU/Transforms/Transforms.h"
@@ -19,6 +21,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/Support/DebugLog.h"
 
 namespace mlir {
@@ -377,54 +380,87 @@ void XeGPUBlockingPass::runOnOperation() {
       tileShape = layout.getEffectiveInstDataAsInt();
       count = computeProduct(shape) / computeProduct(tileShape);
     }
+    assert(count >= 1 && "count must be at least 1");
     return std::make_pair(tileShape, count);
   };
 
-  // Perform type conversion for SCF control folow ops
-  TypeConverter converter;
-  converter.addConversion([](Type type) -> Type { return type; });
-  converter.addConversion(
-      [&](RankedTensorType type,
-          SmallVectorImpl<Type> &result) -> std::optional<LogicalResult> {
-        Type elemTy = type.getElementType();
-        ArrayRef<int64_t> shape = type.getShape();
+  // Perform context-aware type conversion for SCF structural ops.
+  // Inspects Values to find inst_data layout information for 1:N conversion.
+  llvm::SmallSetVector<UnrealizedConversionCastOp, 8> existingCasts;
+  op->walk(
+      [&](UnrealizedConversionCastOp castOp) { existingCasts.insert(castOp); });
 
-        auto layout =
-            llvm::dyn_cast_if_present<xegpu::LayoutAttr>(type.getEncoding());
-        if (layout && layout.isForWorkgroup())
-          return failure();
+  {
+    TypeConverter converter;
+    converter.addConversion([](Type type) -> Type { return type; });
 
-        int count;
-        SmallVector<int64_t> subShape;
-        std::tie(subShape, count) = getTileShapeAndCount(shape, layout);
-        auto newTy = VectorType::get(subShape, elemTy);
-        result.append(count, newTy);
-        return success();
-      });
-  converter.addConversion(
-      [&](xegpu::TensorDescType type,
-          SmallVectorImpl<Type> &result) -> std::optional<LogicalResult> {
-        Type elemTy = type.getElementType();
-        ArrayRef<int64_t> shape = type.getShape();
+    // TensorDescType 1:N converter (type-based, layout is in the type).
+    converter.addConversion(
+        [&](xegpu::TensorDescType type,
+            SmallVectorImpl<Type> &result) -> std::optional<LogicalResult> {
+          Type elemTy = type.getElementType();
+          ArrayRef<int64_t> shape = type.getShape();
 
-        xegpu::DistributeLayoutAttr layout = type.getLayoutAttr();
-        if (layout && layout.isForWorkgroup())
-          return failure();
+          xegpu::DistributeLayoutAttr layout = type.getLayoutAttr();
+          if (layout && layout.isForWorkgroup())
+            return failure();
 
-        int count;
-        SmallVector<int64_t> subShape;
-        std::tie(subShape, count) = getTileShapeAndCount(shape, layout);
+          int count;
+          SmallVector<int64_t> subShape;
+          std::tie(subShape, count) = getTileShapeAndCount(shape, layout);
 
-        if (layout)
-          layout = layout.dropInstData();
+          if (layout)
+            layout = layout.dropInstData();
 
-        auto newTy = xegpu::TensorDescType::get(
-            type.getContext(), subShape, elemTy, type.getEncoding(), layout);
-        result.append(count, newTy);
-        return success();
-      });
+          auto newTy = xegpu::TensorDescType::get(
+              type.getContext(), subShape, elemTy, type.getEncoding(), layout);
+          result.append(count, newTy);
+          return success();
+        });
 
-  xegpu::doSCFStructuralTypeConversionWithTensorType(op, converter);
+    // Context-aware VectorType conversion based on inst_data (1:1
+    // shape-changing or 1:N).
+    auto getSubShapeAndCount = [&](VectorType vecTy,
+                                   xegpu::DistributeLayoutAttr layout)
+        -> std::pair<SmallVector<int64_t>, int> {
+      return getTileShapeAndCount(vecTy.getShape(), layout);
+    };
+    auto loopArgTypes =
+        xegpu::precomputeLoopBlockArgTypes(op, getSubShapeAndCount);
+    xegpu::addVectorTypeConversion(converter, getSubShapeAndCount,
+                                   std::move(loopArgTypes));
+    // Source (N:1) and target (1:1) materializations using
+    // UnrealizedConversionCastOp.
+    auto materializeCast = [](OpBuilder &builder, Type type, ValueRange inputs,
+                              Location loc) -> Value {
+      return UnrealizedConversionCastOp::create(builder, loc, type, inputs)
+          .getResult(0);
+    };
+    converter.addSourceMaterialization(materializeCast);
+    converter.addTargetMaterialization(materializeCast);
+    // Blocking runs SCF conversion separately (not combined with XeGPU
+    // patterns), so it also needs a 1:N target materialization.
+    converter.addTargetMaterialization(
+        [](mlir::OpBuilder &builder, mlir::TypeRange types,
+           mlir::ValueRange inputs, mlir::Location loc) -> SmallVector<Value> {
+          auto castOp =
+              UnrealizedConversionCastOp::create(builder, loc, types, inputs);
+          return SmallVector<Value>(castOp.getResults());
+        });
+
+    ConversionTarget target(*ctx);
+    target.addLegalOp<UnrealizedConversionCastOp>();
+    target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
+
+    RewritePatternSet scfPatterns(ctx);
+    scf::populateSCFStructuralTypeConversionsAndLegality(converter, scfPatterns,
+                                                         target);
+    if (failed(applyPartialConversion(op, target, std::move(scfPatterns))))
+      return signalPassFailure();
+
+    // Fold cancelling cast chains and erase dead casts.
+    xegpu::cleanupUnrealizedConversionCasts(op, existingCasts);
+  }
 
   xegpu::UnrollOptions options;
   options.setFilterConstraint(
