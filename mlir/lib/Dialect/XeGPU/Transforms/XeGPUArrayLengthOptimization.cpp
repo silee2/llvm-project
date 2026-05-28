@@ -104,6 +104,8 @@ public:
 
   LogicalResult matchAndRewrite(xegpu::CreateNdDescOp op,
                                 PatternRewriter &rewriter) const override {
+    if (op.getType().getElementTypeBitWidth() < 8)
+      return failure();
     int64_t subgroupSize = getSubgroupSize(op);
     auto tdescType = op.getType();
     if (!needsOptimization(tdescType, subgroupSize))
