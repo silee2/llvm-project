@@ -7,13 +7,16 @@
 // RUN: | FileCheck %s
 
 // XFAIL: *
-#a = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 1024], inst_data = [16, 64], lane_layout = [1, 16], lane_data = [1, 1]>
+// Note: layouts used by dpas_mx need to match HW constaint. Otherwise dpas_mx is not unrolled.
+#a = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 1024], inst_data = [8, 64], lane_layout = [1, 16], lane_data = [1, 1]>
 #b_packed = #xegpu.layout<sg_layout = [2, 2], sg_data = [512, 16], inst_data = [32, 16], lane_layout = [1, 16], lane_data = [4, 1]>
 #b = #xegpu.layout<sg_layout = [2, 2], sg_data = [1024, 16], inst_data = [64, 16], lane_layout = [1, 16], lane_data = [8, 1]>
-#c = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 16], inst_data = [16, 16], lane_layout = [1, 16], lane_data = [1, 1]>
+#c = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 16], inst_data = [8, 16], lane_layout = [1, 16], lane_data = [1, 1]>
+// Note: inst_data is chosen to utilize 2D block load
 #a_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 32], inst_data = [16, 32], lane_layout = [16, 1], lane_data = [1, 1]>
 #b_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [32, 16], inst_data = [32, 16], lane_layout = [1, 16], lane_data = [1, 1]>
-#dpas_a_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 32], inst_data = [16, 2], lane_layout = [16, 1], lane_data = [1, 1]>
+// Note: scales for dpas_mx needs separate layouts with inst_data to match HW constraint. Otherwise dpas_mx is not unrolled
+#dpas_a_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 32], inst_data = [8, 2], lane_layout = [8, 1], lane_data = [1, 1]>
 #dpas_b_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [32, 16], inst_data = [2, 16], lane_layout = [1, 16], lane_data = [1, 1]>
 
 
