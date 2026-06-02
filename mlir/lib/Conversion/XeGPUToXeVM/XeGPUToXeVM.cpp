@@ -406,7 +406,7 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
           op, "Expected offset rank to match descriptor rank.");
     auto elemType = tdescTy.getElementType();
     // MX scale type load has a special handler.
-    //if (elemType == rewriter.getF8E8M0Type())
+    // if (elemType == rewriter.getF8E8M0Type())
     //  return failure();
 
     auto elemBitSize = elemType.getIntOrFloatBitWidth();
@@ -1584,6 +1584,6 @@ void mlir::populateXeGPUToXeVMConversionPatterns(
   patterns.add<FenceToXeVMPattern, DpasToXeVMPattern>(typeConverter,
                                                       patterns.getContext());
   patterns.add<DpasMxToXeVMPattern>(typeConverter, patterns.getContext());
-  //patterns.add<LoadNdMXScaleToXeVMPattern>(typeConverter,
-  //                                         patterns.getContext());
+  // patterns.add<LoadNdMXScaleToXeVMPattern>(typeConverter,
+  //                                          patterns.getContext());
 }

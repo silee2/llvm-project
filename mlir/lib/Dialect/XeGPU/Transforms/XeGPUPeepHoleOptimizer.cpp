@@ -106,7 +106,8 @@ static bool canBeOptimizedForTranspose(xegpu::TensorDescType tdescType) {
   auto maybeLaneData = getMaybeLaneData(tdescType);
   if (!maybeLaneData || !maybeLaneLayout)
     return false;
-  return canBeOptimizedForTranspose(*maybeLaneLayout, *maybeLaneData, elementTyBitwidth);
+  return canBeOptimizedForTranspose(*maybeLaneLayout, *maybeLaneData,
+                                    elementTyBitwidth);
 }
 
 /// Check if a tensor desc type can be optimized for transpose, if so return the
@@ -263,8 +264,11 @@ public:
     // Get the target uArch info.
     auto chipStr = xegpu::getChipStr(createNdOp);
     // Check if the chip is supported.
-    assert(chipStr && (chipStr.value() == "pvc" || chipStr.value() == "bmg" || chipStr.value() == "cri") &&
-           "Expecting target chip to be pvc, bmg or cri for transpose optimization.");
+    assert(chipStr &&
+           (chipStr.value() == "pvc" || chipStr.value() == "bmg" ||
+            chipStr.value() == "cri") &&
+           "Expecting target chip to be pvc, bmg or cri for transpose "
+           "optimization.");
     const uArch *targetuArch = xegpu::uArch::getUArch(chipStr.value());
 
     auto convertType = tryOptimize(tdescTy, targetuArch);
@@ -573,12 +577,13 @@ struct XeGPUPeepHoleOptimizerPass final
     RewritePatternSet patterns(&context);
     ConversionTarget target(context);
 
-    // This pass is only meant for PVC, BMG or CRI targets. If unsupported target
-    // is found, exit early.
+    // This pass is only meant for PVC, BMG or CRI targets. If unsupported
+    // target is found, exit early.
     bool isTargetSupported = false;
     getOperation()->walk([&](gpu::GPUFuncOp funcOp) {
       auto chipStr = xegpu::getChipStr(funcOp);
-      if (chipStr && (chipStr.value() == "pvc" || chipStr.value() == "bmg" || chipStr.value() == "cri"))
+      if (chipStr && (chipStr.value() == "pvc" || chipStr.value() == "bmg" ||
+                      chipStr.value() == "cri"))
         isTargetSupported = true;
     });
 
@@ -621,7 +626,9 @@ struct XeGPUPeepHoleOptimizerPass final
             return true;
           auto laneLayout = layout.getEffectiveLaneLayoutAsInt();
           auto laneData = layout.getEffectiveLaneDataAsInt();
-          return !canBeOptimizedForTranspose(laneLayout, laneData, extractOp.getSourceVectorType().getElementTypeBitWidth());
+          return !canBeOptimizedForTranspose(
+              laneLayout, laneData,
+              extractOp.getSourceVectorType().getElementTypeBitWidth());
         });
 
     target.addDynamicallyLegalOp<vector::MultiDimReductionOp>(
