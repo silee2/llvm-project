@@ -737,11 +737,13 @@ bool LayoutAttr::isCompatibleWith(const xegpu::DistributeLayoutAttr &other,
       if (laneLayout == otherLaneLayout) {
         return laneData == otherLaneData;
       } else if (laneData == otherLaneData) {
-        // Target LaneLayout may be a fraction of this along distibution dim
-        if (laneLayout[0] == otherLaneLayout[0])
-          return laneLayout[1] % otherLaneLayout[1] == 0;
-        else if (laneLayout[1] == otherLaneLayout[1])
-          return laneLayout[0] % otherLaneLayout[0] == 0;
+        if (laneLayout.size() == 2 && otherLaneLayout.size() == 2) {
+          // Target LaneLayout may be a fraction of this along distibution dim
+          if (laneLayout[0] == otherLaneLayout[0])
+            return laneLayout[1] % otherLaneLayout[1] == 0;
+          else if (laneLayout[1] == otherLaneLayout[1])
+            return laneLayout[0] % otherLaneLayout[0] == 0;
+        }
       }
     }
   }

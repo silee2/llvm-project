@@ -1540,7 +1540,8 @@ struct SgToLaneConvertLayout
     }
     // Handle special case where laneLayout involves partial subgroup
     if (inputLayout.getEffectiveOrderAsInt() ==
-        targetLayout.getEffectiveOrderAsInt()) {
+            targetLayout.getEffectiveOrderAsInt() &&
+        inputLayout.getRank() == 2 && targetLayout.getRank() == 2) {
       auto laneLayout = inputLayout.getEffectiveLaneLayoutAsInt();
       auto targetLaneLayout = targetLayout.getEffectiveLaneLayoutAsInt();
       auto dataLayout = inputLayout.getEffectiveLaneDataAsInt();
