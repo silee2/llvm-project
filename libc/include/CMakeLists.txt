@@ -222,6 +222,24 @@ add_header_macro(
     .llvm-libc-types.sa_family_t
     .llvm-libc-types.struct_sockaddr_in
     .llvm-libc-types.struct_in_addr
+    .llvm-libc-types.struct_in6_addr
+    .llvm_libc_common_h
+)
+
+add_header_macro(
+  netinet_tcp
+  ../libc/include/netinet/tcp.yaml
+  netinet/tcp.h
+  DEPENDS
+    .llvm_libc_common_h
+)
+
+add_header_macro(
+  netinet_udp
+  ../libc/include/netinet/udp.yaml
+  netinet/udp.h
+  DEPENDS
+    .llvm-libc-types.struct_udphdr
     .llvm_libc_common_h
 )
 
@@ -666,6 +684,15 @@ add_header_macro(
     .llvm-libc-types.off_t
     .llvm-libc-types.size_t
     .llvm-libc-types.ssize_t
+)
+
+add_header_macro(
+  sys_param
+  ../libc/include/sys/param.yaml
+  sys/param.h
+  DEPENDS
+    .llvm_libc_common_h
+    .llvm-libc-macros.sys_param_macros
 )
 
 add_header_macro(
