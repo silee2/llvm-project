@@ -8,6 +8,11 @@
 
 // XFAIL: *
 // Note: layouts used by dpas_mx need to match HW constaint. Otherwise dpas_mx is not unrolled.
+// Note: B, A-scale and B-scale memrefs are over-allocated to 64-byte-wide rows.
+// The 2D block load/store messages require the surface width and pitch to be at
+// least 64 bytes; the original 16/32-byte-wide buffers caused out-of-bounds
+// accesses (GPU memory corruption) at runtime. The tensor descriptors still
+// read the original 512x16 / 16x32 / 32x16 tiles from the padded memrefs.
 #a = #xegpu.layout<sg_layout = [1, 1], sg_data = [16, 1024], inst_data = [8, 64], lane_layout = [1, 16], lane_data = [1, 1]>
 #b_packed = #xegpu.layout<sg_layout = [1, 1], sg_data = [512, 16], inst_data = [32, 16], lane_layout = [1, 16], lane_data = [4, 1]>
 #b = #xegpu.layout<sg_layout = [1, 1], sg_data = [1024, 16], inst_data = [64, 16], lane_layout = [1, 16], lane_data = [8, 1]>
@@ -22,13 +27,13 @@
 
 module @gemm attributes {gpu.container_module} {
   gpu.module @kernel {
-    gpu.func @gemm_mxfp(%arg0: memref<16x1024xf4E2M1FN>, %arg1: memref<512x16xi8>, %arg2: memref<16x32xf8E8M0FNU>, %arg3: memref<32x16xf8E8M0FNU>, %arg4: memref<16x16xf32>) kernel {
+    gpu.func @gemm_mxfp(%arg0: memref<16x1024xf4E2M1FN>, %arg1: memref<512x64xi8>, %arg2: memref<16x64xf8E8M0FNU>, %arg3: memref<32x64xf8E8M0FNU>, %arg4: memref<16x16xf32>) kernel {
       %c0 = arith.constant 0 : index
 
       %a_tdesc = xegpu.create_nd_tdesc %arg0 : memref<16x1024xf4E2M1FN> -> !xegpu.tensor_desc<16x1024xf4E2M1FN>
-      %bp_tdesc = xegpu.create_nd_tdesc %arg1 : memref<512x16xi8> -> !xegpu.tensor_desc<512x16xi8>
-      %a_scale_tdesc = xegpu.create_nd_tdesc %arg2 : memref<16x32xf8E8M0FNU> -> !xegpu.tensor_desc<16x32xf8E8M0FNU>
-      %b_scale_tdesc = xegpu.create_nd_tdesc %arg3 : memref<32x16xf8E8M0FNU> -> !xegpu.tensor_desc<32x16xf8E8M0FNU>
+      %bp_tdesc = xegpu.create_nd_tdesc %arg1 : memref<512x64xi8> -> !xegpu.tensor_desc<512x16xi8>
+      %a_scale_tdesc = xegpu.create_nd_tdesc %arg2 : memref<16x64xf8E8M0FNU> -> !xegpu.tensor_desc<16x32xf8E8M0FNU>
+      %b_scale_tdesc = xegpu.create_nd_tdesc %arg3 : memref<32x64xf8E8M0FNU> -> !xegpu.tensor_desc<32x16xf8E8M0FNU>
 
       // Load initial C
       %cd_tdesc = xegpu.create_nd_tdesc %arg4 : memref<16x16xf32> -> !xegpu.tensor_desc<16x16xf32, #c>
@@ -74,31 +79,31 @@ module @gemm attributes {gpu.container_module} {
     }
   }
 
-  func.func @test(%a: memref<16x1024xf4E2M1FN>, %b: memref<512x16xi8>, %a_scale: memref<16x32xf8E8M0FNU>, %b_scale: memref<32x16xf8E8M0FNU>, %c: memref<16x16xf32>) -> memref<16x16xf32> attributes {llvm.emit_c_interface} {
+  func.func @test(%a: memref<16x1024xf4E2M1FN>, %b: memref<512x64xi8>, %a_scale: memref<16x64xf8E8M0FNU>, %b_scale: memref<32x64xf8E8M0FNU>, %c: memref<16x16xf32>) -> memref<16x16xf32> attributes {llvm.emit_c_interface} {
     %c1 = arith.constant 1 : index
     %c16 = arith.constant 16 : index
 
     %memref_a = gpu.alloc() : memref<16x1024xf4E2M1FN>
     gpu.memcpy %memref_a, %a : memref<16x1024xf4E2M1FN>, memref<16x1024xf4E2M1FN>
 
-    %memref_b = gpu.alloc() : memref<512x16xi8>
-    gpu.memcpy %memref_b, %b : memref<512x16xi8>, memref<512x16xi8>
+    %memref_b = gpu.alloc() : memref<512x64xi8>
+    gpu.memcpy %memref_b, %b : memref<512x64xi8>, memref<512x64xi8>
 
     %memref_c = gpu.alloc() : memref<16x16xf32>
     gpu.memcpy %memref_c, %c : memref<16x16xf32>, memref<16x16xf32>
 
-    %memref_a_scale = gpu.alloc() : memref<16x32xf8E8M0FNU>
-    gpu.memcpy %memref_a_scale, %a_scale : memref<16x32xf8E8M0FNU>, memref<16x32xf8E8M0FNU>
+    %memref_a_scale = gpu.alloc() : memref<16x64xf8E8M0FNU>
+    gpu.memcpy %memref_a_scale, %a_scale : memref<16x64xf8E8M0FNU>, memref<16x64xf8E8M0FNU>
 
-    %memref_b_scale = gpu.alloc() : memref<32x16xf8E8M0FNU>
-    gpu.memcpy %memref_b_scale, %b_scale : memref<32x16xf8E8M0FNU>, memref<32x16xf8E8M0FNU>
+    %memref_b_scale = gpu.alloc() : memref<32x64xf8E8M0FNU>
+    gpu.memcpy %memref_b_scale, %b_scale : memref<32x64xf8E8M0FNU>, memref<32x64xf8E8M0FNU>
 
     gpu.launch_func @kernel::@gemm_mxfp blocks in (%c1, %c1, %c1) threads in (%c16, %c1, %c1)
-    args(%memref_a : memref<16x1024xf4E2M1FN>, %memref_b : memref<512x16xi8>, %memref_a_scale : memref<16x32xf8E8M0FNU>, %memref_b_scale : memref<32x16xf8E8M0FNU>, %memref_c : memref<16x16xf32>)
+    args(%memref_a : memref<16x1024xf4E2M1FN>, %memref_b : memref<512x64xi8>, %memref_a_scale : memref<16x64xf8E8M0FNU>, %memref_b_scale : memref<32x64xf8E8M0FNU>, %memref_c : memref<16x16xf32>)
     gpu.dealloc %memref_a : memref<16x1024xf4E2M1FN>
-    gpu.dealloc %memref_b : memref<512x16xi8>
-    gpu.dealloc %memref_a_scale : memref<16x32xf8E8M0FNU>
-    gpu.dealloc %memref_b_scale : memref<32x16xf8E8M0FNU>
+    gpu.dealloc %memref_b : memref<512x64xi8>
+    gpu.dealloc %memref_a_scale : memref<16x64xf8E8M0FNU>
+    gpu.dealloc %memref_b_scale : memref<32x64xf8E8M0FNU>
 
     %res = memref.alloc() : memref<16x16xf32>
     gpu.memcpy %res, %memref_c : memref<16x16xf32>, memref<16x16xf32>
@@ -112,6 +117,7 @@ module @gemm attributes {gpu.container_module} {
     %c1 = arith.constant 1 : index
     %c16 = arith.constant 16 : index
     %c32 = arith.constant 32 : index
+    %c64 = arith.constant 64 : index
     %c512 = arith.constant 512 : index
     %c8K = arith.constant 8192 : index
     %c1packed_e2m1 = arith.constant 0x22 : i8
@@ -124,10 +130,10 @@ module @gemm attributes {gpu.container_module} {
       memref.store %c1packed_e2m1, %A_flatbytes[%i] : memref<8192xi8>
     }
 
-    %B = memref.alloc() : memref<512x16xi8>
+    %B = memref.alloc() : memref<512x64xi8>
     scf.for %i = %c0 to %c512 step %c1 {
-      scf.for %j = %c0 to %c16 step %c1 {
-        memref.store %c1packed_e2m1, %B[%i, %j] : memref<512x16xi8>
+      scf.for %j = %c0 to %c64 step %c1 {
+        memref.store %c1packed_e2m1, %B[%i, %j] : memref<512x64xi8>
       }
     }
 
@@ -138,17 +144,17 @@ module @gemm attributes {gpu.container_module} {
       }
     }
 
-    %A_scale = memref.alloc() : memref<16x32xf8E8M0FNU>
+    %A_scale = memref.alloc() : memref<16x64xf8E8M0FNU>
     scf.for %i = %c0 to %c16 step %c1 {
-      scf.for %j = %c0 to %c32 step %c1 {
-        memref.store %c1f8E8M0FNU, %A_scale[%i, %j] : memref<16x32xf8E8M0FNU>
+      scf.for %j = %c0 to %c64 step %c1 {
+        memref.store %c1f8E8M0FNU, %A_scale[%i, %j] : memref<16x64xf8E8M0FNU>
       }
     }
 
-    %B_scale = memref.alloc() : memref<32x16xf8E8M0FNU>
+    %B_scale = memref.alloc() : memref<32x64xf8E8M0FNU>
     scf.for %i = %c0 to %c32 step %c1 {
-      scf.for %j = %c0 to %c16 step %c1 {
-        memref.store %c1f8E8M0FNU, %B_scale[%i, %j] : memref<32x16xf8E8M0FNU>
+      scf.for %j = %c0 to %c64 step %c1 {
+        memref.store %c1f8E8M0FNU, %B_scale[%i, %j] : memref<32x64xf8E8M0FNU>
       }
     }
 
@@ -160,7 +166,7 @@ module @gemm attributes {gpu.container_module} {
       }
     }
 
-    %C_res = call @test(%A, %B, %A_scale, %B_scale, %C) : (memref<16x1024xf4E2M1FN>, memref<512x16xi8>, memref<16x32xf8E8M0FNU>, memref<32x16xf8E8M0FNU>, memref<16x16xf32>) -> memref<16x16xf32>
+    %C_res = call @test(%A, %B, %A_scale, %B_scale, %C) : (memref<16x1024xf4E2M1FN>, memref<512x64xi8>, memref<16x64xf8E8M0FNU>, memref<32x64xf8E8M0FNU>, memref<16x16xf32>) -> memref<16x16xf32>
     %C_cast = memref.cast %C_res : memref<16x16xf32> to memref<*xf32>
     %C_ref_cast = memref.cast %C_ref : memref<16x16xf32> to memref<*xf32>
     %diff = call @verifyMemRefF32(%C_cast, %C_ref_cast) : (memref<*xf32>, memref<*xf32>) -> i64
@@ -169,9 +175,9 @@ module @gemm attributes {gpu.container_module} {
 
     // CHECK: 0
     memref.dealloc %A_flatbytes : memref<8192xi8>
-    memref.dealloc %B : memref<512x16xi8>
-    memref.dealloc %A_scale : memref<16x32xf8E8M0FNU>
-    memref.dealloc %B_scale : memref<32x16xf8E8M0FNU>
+    memref.dealloc %B : memref<512x64xi8>
+    memref.dealloc %A_scale : memref<16x64xf8E8M0FNU>
+    memref.dealloc %B_scale : memref<32x64xf8E8M0FNU>
     memref.dealloc %C : memref<16x16xf32>
     memref.dealloc %C_res : memref<16x16xf32>
     return
