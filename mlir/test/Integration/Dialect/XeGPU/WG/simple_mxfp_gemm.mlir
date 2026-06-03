@@ -26,21 +26,21 @@ module @gemm attributes {gpu.container_module} {
       %c0 = arith.constant 0 : index
       %mstep = arith.constant 32 : index
       %nstep = arith.constant 32 : index
-      %kstep = arith.constant 1024 : index
+      %kstep = arith.constant 2048 : index
       %mbound = arith.constant 256 : index
       %nbound = arith.constant 256 : index
       %kbound = arith.constant 4096 : index
-      %kbstep = arith.constant 512 : index
-      %kscalestep = arith.constant 32 : index
+      %kbstep = arith.constant 1024 : index
+      %kscalestep = arith.constant 64 : index
       %block_id_x = gpu.block_id x
       %block_id_y = gpu.block_id y
       %m = arith.muli %block_id_x, %mstep : index
       %n = arith.muli %block_id_y, %nstep : index
 
-      %a_tdesc = xegpu.create_nd_tdesc %arg0 : memref<256x4096xf4E2M1FN> -> !xegpu.tensor_desc<32x1024xf4E2M1FN>
-      %bp_tdesc = xegpu.create_nd_tdesc %arg1 : memref<2048x256xi8> -> !xegpu.tensor_desc<512x32xi8>
-      %a_scale_tdesc = xegpu.create_nd_tdesc %arg2 : memref<256x128xf8E8M0FNU> -> !xegpu.tensor_desc<32x32xf8E8M0FNU>
-      %b_scale_tdesc = xegpu.create_nd_tdesc %arg3 : memref<128x256xf8E8M0FNU> -> !xegpu.tensor_desc<32x32xf8E8M0FNU>
+      %a_tdesc = xegpu.create_nd_tdesc %arg0 : memref<256x4096xf4E2M1FN> -> !xegpu.tensor_desc<32x2048xf4E2M1FN>
+      %bp_tdesc = xegpu.create_nd_tdesc %arg1 : memref<2048x256xi8> -> !xegpu.tensor_desc<1024x32xi8>
+      %a_scale_tdesc = xegpu.create_nd_tdesc %arg2 : memref<256x128xf8E8M0FNU> -> !xegpu.tensor_desc<32x64xf8E8M0FNU>
+      %b_scale_tdesc = xegpu.create_nd_tdesc %arg3 : memref<128x256xf8E8M0FNU> -> !xegpu.tensor_desc<64x32xf8E8M0FNU>
 
       // Load initial C
       %cd_tdesc = xegpu.create_nd_tdesc %arg4 : memref<256x256xf32> -> !xegpu.tensor_desc<32x32xf32, #c>
@@ -49,36 +49,36 @@ module @gemm attributes {gpu.container_module} {
       %res:3 = scf.for %k = %c0 to %kbound step %kstep
         iter_args(%c_partial = %c_init, %kb = %c0, %kscale = %c0) -> (vector<32x32xf32>, index, index) {
         // load_nd with offset
-        %a = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a}: !xegpu.tensor_desc<32x1024xf4E2M1FN> -> vector<32x1024xf4E2M1FN>
-        %bp = xegpu.load_nd %bp_tdesc[%kb, %n] {layout = #b_packed}: !xegpu.tensor_desc<512x32xi8> -> vector<512x32xi8>
+        %a = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a}: !xegpu.tensor_desc<32x2048xf4E2M1FN> -> vector<32x2048xf4E2M1FN>
+        %bp = xegpu.load_nd %bp_tdesc[%kb, %n] {layout = #b_packed}: !xegpu.tensor_desc<1024x32xi8> -> vector<1024x32xi8>
 
         // Bitcast to fp4: 512x32 uint8 -> 512x64 fp4 (each uint8 holds 2 fp4 values)
-        %b_bitcast = vector.bitcast %bp : vector<512x32xi8> to vector<512x64xf4E2M1FN>
+        %b_bitcast = vector.bitcast %bp : vector<1024x32xi8> to vector<1024x64xf4E2M1FN>
 
         // De-interleave: extract even and odd columns
         // Even columns (indices 0, 2, 4, ..., 62) -> first half
         // Odd columns (indices 1, 3, 5, ..., 63) -> second half
-        %b_even, %b_odd = vector.deinterleave %b_bitcast : vector<512x64xf4E2M1FN> -> vector<512x32xf4E2M1FN>
+        %b_even, %b_odd = vector.deinterleave %b_bitcast : vector<1024x64xf4E2M1FN> -> vector<1024x32xf4E2M1FN>
 
         // Reconstruct 1024x32 by interleaving even/odd rows:
         // Transpose to move the row dim to trailing position, interleave, transpose back.
-        %b_even_t = vector.transpose %b_even, [1, 0] : vector<512x32xf4E2M1FN> to vector<32x512xf4E2M1FN>
-        %b_odd_t = vector.transpose %b_odd, [1, 0] : vector<512x32xf4E2M1FN> to vector<32x512xf4E2M1FN>
-        %b_interleaved = vector.interleave %b_even_t, %b_odd_t : vector<32x512xf4E2M1FN> -> vector<32x1024xf4E2M1FN>
-        %b = vector.transpose %b_interleaved, [1, 0] : vector<32x1024xf4E2M1FN> to vector<1024x32xf4E2M1FN>
+        %b_even_t = vector.transpose %b_even, [1, 0] : vector<1024x32xf4E2M1FN> to vector<32x1024xf4E2M1FN>
+        %b_odd_t = vector.transpose %b_odd, [1, 0] : vector<1024x32xf4E2M1FN> to vector<32x1024xf4E2M1FN>
+        %b_interleaved = vector.interleave %b_even_t, %b_odd_t : vector<32x1024xf4E2M1FN> -> vector<32x2048xf4E2M1FN>
+        %b = vector.transpose %b_interleaved, [1, 0] : vector<32x2048xf4E2M1FN> to vector<2048x32xf4E2M1FN>
 
-        %scale_a = xegpu.load_nd %a_scale_tdesc[%m, %kscale] {layout = #a_scale}: !xegpu.tensor_desc<32x32xf8E8M0FNU> -> vector<32x32xf8E8M0FNU>
+        %scale_a = xegpu.load_nd %a_scale_tdesc[%m, %kscale] {layout = #a_scale}: !xegpu.tensor_desc<32x64xf8E8M0FNU> -> vector<32x64xf8E8M0FNU>
 
-        %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] {layout = #b_scale}: !xegpu.tensor_desc<32x32xf8E8M0FNU> -> vector<32x32xf8E8M0FNU>
+        %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] {layout = #b_scale}: !xegpu.tensor_desc<64x32xf8E8M0FNU> -> vector<64x32xf8E8M0FNU>
         %new_c_partial = xegpu.dpas_mx %a, %b, %c_partial scale_a = %scale_a scale_b = %scale_b
               {layout_a = #a,
                layout_b = #b,
                layout_cd = #c,
                layout_a_scale = #dpas_a_scale,
                layout_b_scale = #dpas_b_scale}
-            : (vector<32x1024xf4E2M1FN>, vector<1024x32xf4E2M1FN>,
+            : (vector<32x2048xf4E2M1FN>, vector<2048x32xf4E2M1FN>,
                vector<32x32xf32>,
-               vector<32x32xf8E8M0FNU>, vector<32x32xf8E8M0FNU>)
+               vector<32x64xf8E8M0FNU>, vector<64x32xf8E8M0FNU>)
             -> vector<32x32xf32>
 
         // b, a_scale and b_scale take different steps compared to a
@@ -97,7 +97,7 @@ module @gemm attributes {gpu.container_module} {
   func.func @test(%a: memref<256x4096xf4E2M1FN>, %b: memref<2048x256xi8>, %a_scale: memref<256x128xf8E8M0FNU>, %b_scale: memref<128x256xf8E8M0FNU>, %c: memref<256x256xf32>) -> memref<256x256xf32> attributes {llvm.emit_c_interface} {
     %c1 = arith.constant 1 : index
     %c8 = arith.constant 8 : index
-    %c16 = arith.constant 16 : index
+    %c64 = arith.constant 64 : index
 
     %memref_a = gpu.alloc() : memref<256x4096xf4E2M1FN>
     gpu.memcpy %memref_a, %a : memref<256x4096xf4E2M1FN>, memref<256x4096xf4E2M1FN>
@@ -114,7 +114,7 @@ module @gemm attributes {gpu.container_module} {
     %memref_b_scale = gpu.alloc() : memref<128x256xf8E8M0FNU>
     gpu.memcpy %memref_b_scale, %b_scale : memref<128x256xf8E8M0FNU>, memref<128x256xf8E8M0FNU>
 
-    gpu.launch_func @kernel::@gemm_mxfp blocks in (%c8, %c8, %c1) threads in (%c16, %c1, %c1)
+    gpu.launch_func @kernel::@gemm_mxfp blocks in (%c8, %c8, %c1) threads in (%c64, %c1, %c1)
     args(%memref_a : memref<256x4096xf4E2M1FN>, %memref_b : memref<2048x256xi8>, %memref_a_scale : memref<256x128xf8E8M0FNU>, %memref_b_scale : memref<128x256xf8E8M0FNU>, %memref_c : memref<256x256xf32>)
     gpu.dealloc %memref_a : memref<256x4096xf4E2M1FN>
     gpu.dealloc %memref_b : memref<2048x256xi8>
