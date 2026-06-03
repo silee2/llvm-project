@@ -24,18 +24,6 @@ module @gemm attributes {gpu.container_module} {
   gpu.module @kernel {
     gpu.func @gemm_mxfp(%arg0: memref<16x1024xf4E2M1FN>, %arg1: memref<512x16xi8>, %arg2: memref<16x32xf8E8M0FNU>, %arg3: memref<32x16xf8E8M0FNU>, %arg4: memref<16x16xf32>) kernel {
       %c0 = arith.constant 0 : index
-      %mstep = arith.constant 32 : index
-      %nstep = arith.constant 32 : index
-      %kstep = arith.constant 1024 : index
-      %mbound = arith.constant 256 : index
-      %nbound = arith.constant 256 : index
-      %kbound = arith.constant 4096 : index
-      %kbstep = arith.constant 512 : index
-      %kscalestep = arith.constant 32 : index
-      %block_id_x = gpu.block_id x
-      %block_id_y = gpu.block_id y
-      %m = arith.muli %block_id_x, %mstep : index
-      %n = arith.muli %block_id_y, %nstep : index
 
       %a_tdesc = xegpu.create_nd_tdesc %arg0 : memref<16x1024xf4E2M1FN> -> !xegpu.tensor_desc<16x1024xf4E2M1FN>
       %bp_tdesc = xegpu.create_nd_tdesc %arg1 : memref<512x16xi8> -> !xegpu.tensor_desc<512x16xi8>
@@ -88,7 +76,6 @@ module @gemm attributes {gpu.container_module} {
 
   func.func @test(%a: memref<16x1024xf4E2M1FN>, %b: memref<512x16xi8>, %a_scale: memref<16x32xf8E8M0FNU>, %b_scale: memref<32x16xf8E8M0FNU>, %c: memref<16x16xf32>) -> memref<16x16xf32> attributes {llvm.emit_c_interface} {
     %c1 = arith.constant 1 : index
-    %c8 = arith.constant 8 : index
     %c16 = arith.constant 16 : index
 
     %memref_a = gpu.alloc() : memref<16x1024xf4E2M1FN>
@@ -125,13 +112,8 @@ module @gemm attributes {gpu.container_module} {
     %c1 = arith.constant 1 : index
     %c16 = arith.constant 16 : index
     %c32 = arith.constant 32 : index
-    %c128 = arith.constant 128 : index
-    %c256 = arith.constant 256 : index
     %c512 = arith.constant 512 : index
-    %c2K = arith.constant 2048 : index
-    %c4K = arith.constant 4096 : index
     %c8K = arith.constant 8192 : index
-    %c512K = arith.constant 524288 : index
     %c1packed_e2m1 = arith.constant 0x22 : i8
     %c0f32 = arith.constant 0.0 : f32
     %c1f8E8M0FNU = arith.constant 1.0 : f8E8M0FNU
