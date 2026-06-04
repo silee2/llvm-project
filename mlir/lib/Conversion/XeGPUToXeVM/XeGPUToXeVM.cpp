@@ -436,7 +436,14 @@ class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
           bool transpose =
               transposeValue.has_value() && transposeValue.value()[0] == 1;
           // Handle tranpose request on small element size
-          if (transpose && elemBitSize < 32) {
+          // Transpose needs to be requested on 32bit element type.
+          // offsetW and tileW needs to be adjusted to account for element type
+          // change.
+          if (transpose && elemBitSize != 32) {
+            int32_t scale = 32 / elemBitSize;
+            Value scaleLog2 = arith::ConstantIntOp::create(
+                rewriter, loc, rewriter.getI32Type(), llvm::Log2_64(scale));
+            offsetW = arith::ShRSIOp::create(rewriter, loc, offsetW, scaleLog2);
             tileW = tileW * elemBitSize / 32;
             elemBitSize = 32;
           }
