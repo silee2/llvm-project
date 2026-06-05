@@ -9,15 +9,13 @@
 // XFAIL: *
 // Note: layouts used by dpas_mx need to match HW constaint. Otherwise dpas_mx is not unrolled.
 #a = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 1024], inst_data = [8, 64], lane_layout = [1, 16], lane_data = [1, 1]>
-#a_ld = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 1024], inst_data = [8, 16], lane_layout = [1, 16], lane_data = [1, 1]>
 #b_packed = #xegpu.layout<sg_layout = [2, 2], sg_data = [512, 16], inst_data = [32, 16], lane_layout = [1, 16], lane_data = [4, 1]>
 #b = #xegpu.layout<sg_layout = [2, 2], sg_data = [1024, 16], inst_data = [64, 16], lane_layout = [1, 16], lane_data = [8, 1]>
+#b_f16 = #xegpu.layout<sg_layout = [2, 2], sg_data = [1024, 16], inst_data = [16, 16], lane_layout = [1, 16], lane_data = [2, 1]>
 #c = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 16], inst_data = [8, 16], lane_layout = [1, 16], lane_data = [1, 1]>
 // Note: inst_data is chosen to utilize 2D block load
 #b_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [32, 16], inst_data = [32, 16], lane_layout = [1, 16], lane_data = [1, 1]>
 // Note: scales for dpas_mx needs separate layouts with inst_data to match HW constraint. Otherwise dpas_mx is not unrolled
-#dpas_a_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 32], inst_data = [8, 2], lane_layout = [8, 1], lane_data = [1, 1]>
-#dpas_b_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [32, 16], inst_data = [2, 16], lane_layout = [1, 16], lane_data = [1, 1]>
 
 
 module @gemm attributes {gpu.container_module} {
@@ -52,43 +50,7 @@ module @gemm attributes {gpu.container_module} {
       %res:3 = scf.for %k = %c0 to %kbound step %kstep
         iter_args(%c_partial = %c_init, %kb = %c0, %kscale = %c0) -> (vector<32x32xf32>, index, index) {
         // -------- Load A (bf16) --------
-        %a_bf16 = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a_ld}: !xegpu.tensor_desc<32x1024xbf16> -> vector<32x1024xbf16>
-
-        // -------- Quantize A: bf16 -> fp4 + f8E8M0 scale (block_size=32 along K) --------
-        // 1) abs and reduce-max per block of 32 along K dim using vector ops.
-        %a_abs = math.absf %a_bf16 : vector<32x1024xbf16>
-        %a_abs_r = vector.shape_cast %a_abs : vector<32x1024xbf16> to vector<32x32x32xbf16>
-        %a_neg_inf_i = arith.constant dense<0xFF80> : vector<32x32xi16>
-        %a_neg_inf = arith.bitcast %a_neg_inf_i : vector<32x32xi16> to vector<32x32xbf16>
-        %a_amax = vector.multi_reduction <maximumf>, %a_abs_r, %a_neg_inf [2]
-            : vector<32x32x32xbf16> to vector<32x32xbf16>
-
-        // 2) Largest power-of-two <= amax: mask out mantissa bits of bf16.
-        %a_amax_i16 = arith.bitcast %a_amax : vector<32x32xbf16> to vector<32x32xi16>
-        %a_exp_mask = arith.constant dense<0x7F80> : vector<32x32xi16>
-        %a_pow2_i16 = arith.andi %a_amax_i16, %a_exp_mask : vector<32x32xi16>
-        %a_pow2 = arith.bitcast %a_pow2_i16 : vector<32x32xi16> to vector<32x32xbf16>
-
-        // 3) Divide by largest power-of-two representable by E2M1 (= 4.0).
-        %a_e2m1_max = arith.constant dense<4.000000e+00> : vector<32x32xbf16>
-        %a_scale_bf16 = arith.divf %a_pow2, %a_e2m1_max : vector<32x32xbf16>
-
-        // 4) Truncate scale to f8E8M0FNU.
-        %a_scale = arith.truncf %a_scale_bf16 : vector<32x32xbf16> to vector<32x32xf8E8M0FNU>
-
-        // 5) Broadcast the per-block scale across the block (32 elements along K).
-        //    vector.broadcast can only prepend leading dims, so we broadcast onto a
-        //    leading 32 dim, transpose it to the trailing position, then shape_cast.
-        %a_scale_lead = vector.broadcast %a_scale
-            : vector<32x32xf8E8M0FNU> to vector<32x32x32xf8E8M0FNU>
-        %a_scale_t = vector.transpose %a_scale_lead, [1, 2, 0]
-            : vector<32x32x32xf8E8M0FNU> to vector<32x32x32xf8E8M0FNU>
-        %a_scale_full = vector.shape_cast %a_scale_t
-            : vector<32x32x32xf8E8M0FNU> to vector<32x1024xf8E8M0FNU>
-
-        // 6) Scaled truncf to fp4 (to_nearest_even).
-        %a = arith.scaling_truncf %a_bf16, %a_scale_full
-            : vector<32x1024xbf16>, vector<32x1024xf8E8M0FNU> to vector<32x1024xf4E2M1FN>
+        %a = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a}: !xegpu.tensor_desc<32x1024xbf16> -> vector<32x1024xbf16>
 
         %bp = xegpu.load_nd %bp_tdesc[%kb, %n] {layout = #b_packed}: !xegpu.tensor_desc<512x32xi8> -> vector<512x32xi8>
 
@@ -109,18 +71,24 @@ module @gemm attributes {gpu.container_module} {
 
 
         %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] {layout = #b_scale}: !xegpu.tensor_desc<32x32xf8E8M0FNU> -> vector<32x32xf8E8M0FNU>
-        %new_c_partial = xegpu.dpas_mx %a, %b, %c_partial scale_a = %a_scale scale_b = %scale_b
+        // Broadcast scale_b from <16x128> to <512x128>: each scale value applies to
+        // 32 consecutive K rows of B.
+        %scale_b_bcast = vector.broadcast %scale_b : vector<32x32xf8E8M0FNU> to vector<32x32x32xf8E8M0FNU>
+        %scale_b_t = vector.transpose %scale_b_bcast, [1, 0, 2] : vector<32x32x32xf8E8M0FNU> to vector<32x32x32xf8E8M0FNU>
+        %scale_b_full = vector.shape_cast %scale_b_t : vector<32x32x32xf8E8M0FNU> to vector<1024x32xf8E8M0FNU>
+
+        // Dequantize B from f4E2M1FN to bf16 using scale_b.
+        %b_bf16 = arith.scaling_extf %b, %scale_b_full : vector<1024x32xf4E2M1FN>, vector<1024x32xf8E8M0FNU> to vector<1024x32xbf16>
+
+        %new_c_partial = xegpu.dpas %a, %b_bf16, %c_partial
               {layout_a = #a,
-               layout_b = #b,
-               layout_cd = #c,
-               layout_a_scale = #dpas_a_scale,
-               layout_b_scale = #dpas_b_scale}
-            : (vector<32x1024xf4E2M1FN>, vector<1024x32xf4E2M1FN>,
-               vector<32x32xf32>,
-               vector<32x32xf8E8M0FNU>, vector<32x32xf8E8M0FNU>)
+               layout_b = #b_f16,
+               layout_cd = #c}
+            : vector<32x1024xbf16>, vector<1024x32xbf16>,
+              vector<32x32xf32>
             -> vector<32x32xf32>
 
-        // b, a_scale and b_scale take different steps compared to a
+        // b and b_scale take different steps compared to a
         // compute adjusted k index for those tiles.
         %new_kb = arith.addi %kb, %kbstep : index
         %new_kscale = arith.addi %kscale, %kscalestep : index
