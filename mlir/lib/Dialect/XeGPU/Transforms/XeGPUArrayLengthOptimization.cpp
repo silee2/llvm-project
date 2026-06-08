@@ -104,6 +104,7 @@ public:
 
   LogicalResult matchAndRewrite(xegpu::CreateNdDescOp op,
                                 PatternRewriter &rewriter) const override {
+    // sub-byte type is not supported for now.
     if (op.getType().getElementTypeBitWidth() < 8)
       return failure();
     int64_t subgroupSize = getSubgroupSize(op);
