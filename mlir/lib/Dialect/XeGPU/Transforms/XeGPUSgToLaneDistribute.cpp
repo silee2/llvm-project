@@ -1638,6 +1638,45 @@ struct SgToLaneConvertLayout
       }
     }
 
+    // Special case: fold a convert_layout that merely repacks `lane_data`
+    // along the non-distributed outer dimension - from `[N, 1]` to `[1, 1]`
+    // with `order = [1, 0]`, keeping `lane_layout` unchanged - when its result
+    // is consumed by exactly `N` `vector.extract_strided_slice` ops. After lane
+    // distribution both layouts yield the same per-lane vector
+    // (`getDistributedVectorType` ignores `lane_data`), and the `N` slices
+    // recover the original blocking, so the convert is redundant and folds to
+    // its source.
+    if (inputLayout.getRank() == 2 && targetLayout.getRank() == 2) {
+      auto laneLayout = inputLayout.getEffectiveLaneLayoutAsInt();
+      auto targetLaneLayout = targetLayout.getEffectiveLaneLayoutAsInt();
+      auto laneData = inputLayout.getEffectiveLaneDataAsInt();
+      auto targetLaneData = targetLayout.getEffectiveLaneDataAsInt();
+      auto targetOrder = targetLayout.getEffectiveOrderAsInt();
+      if (laneLayout.size() == 2 && targetLaneLayout.size() == 2 &&
+          laneData.size() == 2 && targetLaneData.size() == 2 &&
+          laneLayout == targetLaneLayout && laneLayout[0] == 1 &&
+          laneData[0] > 1 && laneData[1] == 1 &&
+          targetLaneData == SmallVector<int64_t>({1, 1}) &&
+          targetOrder == SmallVector<int64_t>({1, 0})) {
+        // The block factor `N` is the outer (non-distributed) lane_data, and
+        // it must match the number of extract_strided_slice consumers.
+        int64_t blockFactor = laneData[0];
+        int64_t numSlices = 0;
+        bool allSlices = true;
+        for (Operation *user : op.getResult().getUsers()) {
+          ++numSlices;
+          if (!isa<vector::ExtractStridedSliceOp>(user)) {
+            allSlices = false;
+            break;
+          }
+        }
+        if (allSlices && numSlices == blockFactor) {
+          rewriter.replaceOp(op, adaptor.getSource());
+          return success();
+        }
+      }
+    }
+
     return rewriter.notifyMatchFailure(
         op, "lowering incompatible convert_layout not yet supported");
   }
