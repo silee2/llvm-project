@@ -97,6 +97,7 @@ struct Subgroup2DBlockLoadInstruction : public Instruction {
 
     static const int kWidth32[] = {32};
     static const int kWidth16[] = {16};
+    static const int kWidthAtLeast16[] = {16, 32};
     static const int kWidth8[] = {8};
 
     static const int32_t kCount1[] = {1};
@@ -109,7 +110,7 @@ struct Subgroup2DBlockLoadInstruction : public Instruction {
     using Value = std::tuple<llvm::ArrayRef<int32_t>, llvm::ArrayRef<int32_t>,
                              llvm::ArrayRef<int32_t>>;
     static const llvm::DenseMap<Key, Value> kMap = {
-        {{1, false, false, false}, {kWidth32, kHeightAtLeast1, kCount2}},
+        {{1, false, false, false}, {kWidthAtLeast16, kHeightAtLeast1, kCount2}},
         {{1, false, false, true}, {kWidth16, kHeightAtLeast8, kCount4Only}},
         {{2, false, false, false}, {kWidth16, kHeightAtLeast1, kCount2}},
         {{4, false, false, false}, {kWidth16, kHeightAtLeast1, kCount1}},
@@ -117,12 +118,36 @@ struct Subgroup2DBlockLoadInstruction : public Instruction {
         {{1, true, false, false}, {kWidth16, kHeightAtLeast32, kCount4}},
         {{2, true, false, false}, {kWidth16, kHeightAtLeast16, kCount2}},
         // Block Loads with Transpose:
-        {{4, false, true, false}, {kWidth8, kHeightAtLeast16, kCount1}},
-    };
-    const int elemByteSize = elemTy.getIntOrFloatBitWidth() / 8;
+        {{1, false, true, false}, {kWidth32, kHeightAtLeast16, kCount1}},
+        {{2, false, true, false}, {kWidth16, kHeightAtLeast16, kCount1}},
+        {{4, false, true, false}, {kWidth8, kHeightAtLeast16, kCount1}}};
+    int elemByteSize = elemTy.getIntOrFloatBitWidth() / 8;
+    // handle sub-byte elements by treating them as 1 byte elements
+    if (elemByteSize == 0)
+      elemByteSize = 1;
     auto it = kMap.find({elemByteSize, hasTransform, hasTranspose, upConv});
-    if (it != kMap.end())
+    if (it != kMap.end()) {
+      // for sub-byte elements, need to double width retrieved from map since
+      // the map is based on byte-sized elements
+      if (elemTy.getIntOrFloatBitWidth() < 8) {
+        int subByteElemCount = 8 / elemTy.getIntOrFloatBitWidth();
+        auto [widths, heights, counts] = it->second;
+        if (hasTransform) {
+          llvm::SmallVector<int, 8> newHeights;
+          for (int h : heights)
+            newHeights.push_back(h * subByteElemCount);
+          return std::make_tuple(widths, llvm::ArrayRef<int>(newHeights),
+                                 counts);
+        } else {
+          llvm::SmallVector<int, 8> newWidths;
+          for (int w : widths)
+            newWidths.push_back(w * subByteElemCount);
+          return std::make_tuple(llvm::ArrayRef<int>(newWidths), heights,
+                                 counts);
+        }
+      }
       return it->second;
+    }
     return std::nullopt;
   }
 
