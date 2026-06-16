@@ -15,6 +15,7 @@
 #c = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 16], inst_data = [8, 16], lane_layout = [1, 16], lane_data = [1, 1]>
 // Note: inst_data is chosen to utilize 2D block load
 #b_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [32, 16], inst_data = [32, 16], lane_layout = [1, 16], lane_data = [1, 1]>
+#a_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 32], inst_data = [16, 32], lane_layout = [16, 1], lane_data = [1, 1]>
 // Note: scales for dpas_mx needs separate layouts with inst_data to match HW constraint. Otherwise dpas_mx is not unrolled
 #dpas_a_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [16, 32], inst_data = [8, 2], lane_layout = [8, 1], lane_data = [1, 1]>
 #dpas_b_scale = #xegpu.layout<sg_layout = [2, 2], sg_data = [32, 16], inst_data = [2, 16], lane_layout = [1, 16], lane_data = [1, 1]>
@@ -109,7 +110,8 @@ module @gemm attributes {gpu.container_module} {
 
 
         %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] {layout = #b_scale}: !xegpu.tensor_desc<32x32xf8E8M0FNU> -> vector<32x32xf8E8M0FNU>
-        %new_c_partial = xegpu.dpas_mx %a, %b, %c_partial scale_a = %a_scale scale_b = %scale_b
+        %a_scale_tpose = xegpu.convert_layout %a_scale <{input_layout = #a_scale, target_layout = #dpas_a_scale}> : vector<32x32xf8E8M0FNU>
+        %new_c_partial = xegpu.dpas_mx %a, %b, %c_partial scale_a = %a_scale_tpose scale_b = %scale_b
               {layout_a = #a,
                layout_b = #b,
                layout_cd = #c,
