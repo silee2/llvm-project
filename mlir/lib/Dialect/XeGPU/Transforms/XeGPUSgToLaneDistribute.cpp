@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "mlir/Dialect/XeGPU/Transforms/Passes.h"
@@ -642,10 +643,25 @@ struct SgToLaneMultiDimReduction
   }
 };
 
+/// Per-distribution-unit info for a matrix op. A lane's portion of the
+/// distributed payload may map to several non-contiguous regions of the
+/// matrix (one "distribution unit" each), for example when the lane layout
+/// uses only a fraction of the subgroup, so that lanes are reused across
+/// units. Each entry carries the matrix memory coordinates to load/store and
+/// the offset of that piece within the distributed per-lane vector.
+namespace {
+struct MatrixOpDistInfo {
+  SmallVector<SmallVector<Value>> coordSets;
+  SmallVector<SmallVector<int64_t>> distOffsets;
+  SmallVector<int64_t> perSetShape;
+};
+} // namespace
+
 /// Helper to compute distributed coordinates for matrix ops.
 /// When not using subgroup_block_io, each lane computes its own
-/// coordinates based on the layout and lane ID.
-static SmallVector<Value> computeDistributedCoordsForMatrixOp(
+/// coordinates based on the layout and lane ID. Returns one entry per
+/// distribution unit the lane is responsible for.
+static FailureOr<MatrixOpDistInfo> computeDistributedCoordsForMatrixOp(
     ConversionPatternRewriter &rewriter, Location loc,
     xegpu::DistributeLayoutAttr layout, ArrayRef<int64_t> payloadShape,
     ValueRange origOffsets) {
@@ -654,13 +670,40 @@ static SmallVector<Value> computeDistributedCoordsForMatrixOp(
   auto maybeCoords =
       layout.computeDistributedCoords(rewriter, loc, laneId, payloadShape);
   if (failed(maybeCoords))
-    return {};
-  assert(maybeCoords.value().size() == 1 &&
-         "Expected one set of distributed offsets");
-  SmallVector<OpFoldResult> ofrVec = xegpu::addWithRightAligned(
-      rewriter, loc, getAsOpFoldResult(maybeCoords.value()[0]),
-      getAsOpFoldResult(origOffsets));
-  return llvm::map_to_vector(ofrVec, llvm::CastTo<Value>);
+    return failure();
+  SmallVector<SmallVector<Value>> coordSets = maybeCoords.value();
+
+  // Compute, for each distribution unit, the offset of its piece within the
+  // distributed per-lane vector. Units are enumerated in the same order as
+  // `computeDistributedCoords` (row-major over distribution units), so the
+  // i-th offset corresponds to the i-th coordinate set.
+  SmallVector<int64_t> laneLayout = layout.getEffectiveLaneLayoutAsInt();
+  SmallVector<int64_t> laneData = layout.getEffectiveLaneDataAsInt();
+  int64_t rank = payloadShape.size();
+  SmallVector<int64_t> distUnitShape(rank), perSetShape(rank);
+  for (int64_t d = 0; d < rank; ++d) {
+    distUnitShape[d] = std::min(payloadShape[d], laneLayout[d] * laneData[d]);
+    perSetShape[d] = distUnitShape[d] / laneLayout[d];
+  }
+  SmallVector<SmallVector<int64_t>> distOffsets;
+  for (SmallVector<int64_t> unitOffs :
+       StaticTileOffsetRange(payloadShape, distUnitShape)) {
+    SmallVector<int64_t> off(rank);
+    for (int64_t d = 0; d < rank; ++d)
+      off[d] = (unitOffs[d] / distUnitShape[d]) * perSetShape[d];
+    distOffsets.push_back(off);
+  }
+  assert(distOffsets.size() == coordSets.size() &&
+         "mismatch between coordinate sets and distributed offsets");
+
+  // Add the op's base offsets to each set's coordinates (right-aligned).
+  for (SmallVector<Value> &coords : coordSets) {
+    SmallVector<OpFoldResult> ofrVec = xegpu::addWithRightAligned(
+        rewriter, loc, getAsOpFoldResult(coords), getAsOpFoldResult(origOffsets));
+    coords = llvm::map_to_vector(ofrVec, llvm::CastTo<Value>);
+  }
+  return MatrixOpDistInfo{std::move(coordSets), std::move(distOffsets),
+                          std::move(perSetShape)};
 }
 
 /// This pattern distributes a subgroup-level LoadMatrix op to lane-level.
@@ -694,25 +737,60 @@ struct SgToLaneLoadMatrix : public OpConversionPattern<xegpu::LoadMatrixOp> {
     SmallVector<Value> offsetsAsValues =
         vector::getAsValues(rewriter, loc, offsets);
 
-    SmallVector<Value> newCoords = offsetsAsValues;
-    if (!op.getSubgroupBlockIoAttr()) {
-      newCoords = computeDistributedCoordsForMatrixOp(
-          rewriter, loc, layout, sgPayloadTy.getShape(), offsetsAsValues);
-      if (newCoords.empty())
-        return rewriter.notifyMatchFailure(
-            op, "Failed to compute distributed coordinates.");
-    }
-
     SmallVector<int64_t> newConstOffsets(op.getConstOffsets().size(),
                                          ShapedType::kDynamic);
     DenseI64ArrayAttr newConstOffsetsAttr =
         rewriter.getDenseI64ArrayAttr(newConstOffsets);
+    VectorType distPayloadTy = *distPayloadTyOrFailure;
 
-    auto newOp = xegpu::LoadMatrixOp::create(
-        rewriter, loc, *distPayloadTyOrFailure, adaptor.getMemDesc(),
-        ValueRange(newCoords), newConstOffsetsAttr, op.getSubgroupBlockIoAttr(),
-        xegpu::DistributeLayoutAttr{});
-    rewriter.replaceOp(op, newOp.getResult());
+    // subgroup_block_io loads the whole distributed payload contiguously;
+    // no per-lane coordinate computation is needed.
+    if (op.getSubgroupBlockIoAttr()) {
+      auto newOp = xegpu::LoadMatrixOp::create(
+          rewriter, loc, distPayloadTy, adaptor.getMemDesc(),
+          ValueRange(offsetsAsValues), newConstOffsetsAttr,
+          op.getSubgroupBlockIoAttr(), xegpu::DistributeLayoutAttr{});
+      rewriter.replaceOp(op, newOp.getResult());
+      return success();
+    }
+
+    FailureOr<MatrixOpDistInfo> infoOrFailure =
+        computeDistributedCoordsForMatrixOp(rewriter, loc, layout,
+                                            sgPayloadTy.getShape(),
+                                            offsetsAsValues);
+    if (failed(infoOrFailure))
+      return rewriter.notifyMatchFailure(
+          op, "Failed to compute distributed coordinates.");
+    MatrixOpDistInfo info = *infoOrFailure;
+
+    // Single distribution unit: the lane loads its whole distributed payload
+    // in one shot.
+    if (info.coordSets.size() == 1) {
+      auto newOp = xegpu::LoadMatrixOp::create(
+          rewriter, loc, distPayloadTy, adaptor.getMemDesc(),
+          ValueRange(info.coordSets[0]), newConstOffsetsAttr,
+          op.getSubgroupBlockIoAttr(), xegpu::DistributeLayoutAttr{});
+      rewriter.replaceOp(op, newOp.getResult());
+      return success();
+    }
+
+    // Multiple distribution units (e.g. a partial-subgroup lane layout): load
+    // each unit's piece and assemble them into the full distributed payload.
+    VectorType perSetTy =
+        VectorType::get(info.perSetShape, distPayloadTy.getElementType());
+    SmallVector<int64_t> strides(distPayloadTy.getRank(), 1);
+    Value result = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getZeroAttr(distPayloadTy));
+    for (auto [coords, distOffset] :
+         llvm::zip_equal(info.coordSets, info.distOffsets)) {
+      Value piece = xegpu::LoadMatrixOp::create(
+          rewriter, loc, perSetTy, adaptor.getMemDesc(), ValueRange(coords),
+          newConstOffsetsAttr, op.getSubgroupBlockIoAttr(),
+          xegpu::DistributeLayoutAttr{});
+      result = vector::InsertStridedSliceOp::create(rewriter, loc, piece,
+                                                    result, distOffset, strides);
+    }
+    rewriter.replaceOp(op, result);
     return success();
   }
 };
@@ -916,26 +994,55 @@ struct SgToLaneStoreMatrix : public OpConversionPattern<xegpu::StoreMatrixOp> {
     SmallVector<Value> offsetsAsValues =
         vector::getAsValues(rewriter, loc, offsets);
 
-    SmallVector<Value> newCoords = offsetsAsValues;
-    if (!op.getSubgroupBlockIoAttr()) {
-      newCoords = computeDistributedCoordsForMatrixOp(
-          rewriter, loc, layout, sgPayloadTy.getShape(), offsetsAsValues);
-      if (newCoords.empty())
-        return rewriter.notifyMatchFailure(
-            op, "Failed to compute distributed coordinates.");
-    }
-
     SmallVector<int64_t> newConstOffsets(op.getConstOffsets().size(),
                                          ShapedType::kDynamic);
     DenseI64ArrayAttr newConstOffsetsAttr =
         rewriter.getDenseI64ArrayAttr(newConstOffsets);
+    VectorType distPayloadTy = *distPayloadTyOrFailure;
+    Value distData = castValueTo(
+        rewriter, cast<TypedValue<VectorType>>(adaptor.getData()), distPayloadTy);
 
-    xegpu::StoreMatrixOp::create(
-        rewriter, loc, TypeRange{},
-        castValueTo(rewriter, cast<TypedValue<VectorType>>(adaptor.getData()),
-                    distPayloadTyOrFailure.value()),
-        adaptor.getMemDesc(), ValueRange(newCoords), newConstOffsetsAttr,
-        op.getSubgroupBlockIoAttr(), xegpu::DistributeLayoutAttr{});
+    // subgroup_block_io stores the whole distributed payload contiguously.
+    if (op.getSubgroupBlockIoAttr()) {
+      xegpu::StoreMatrixOp::create(
+          rewriter, loc, TypeRange{}, distData, adaptor.getMemDesc(),
+          ValueRange(offsetsAsValues), newConstOffsetsAttr,
+          op.getSubgroupBlockIoAttr(), xegpu::DistributeLayoutAttr{});
+      rewriter.eraseOp(op);
+      return success();
+    }
+
+    FailureOr<MatrixOpDistInfo> infoOrFailure =
+        computeDistributedCoordsForMatrixOp(rewriter, loc, layout,
+                                            sgPayloadTy.getShape(),
+                                            offsetsAsValues);
+    if (failed(infoOrFailure))
+      return rewriter.notifyMatchFailure(
+          op, "Failed to compute distributed coordinates.");
+    MatrixOpDistInfo info = *infoOrFailure;
+
+    // Single distribution unit: store the whole distributed payload in one
+    // shot.
+    if (info.coordSets.size() == 1) {
+      xegpu::StoreMatrixOp::create(
+          rewriter, loc, TypeRange{}, distData, adaptor.getMemDesc(),
+          ValueRange(info.coordSets[0]), newConstOffsetsAttr,
+          op.getSubgroupBlockIoAttr(), xegpu::DistributeLayoutAttr{});
+      rewriter.eraseOp(op);
+      return success();
+    }
+
+    // Multiple distribution units: store each unit's piece separately.
+    SmallVector<int64_t> strides(distPayloadTy.getRank(), 1);
+    for (auto [coords, distOffset] :
+         llvm::zip_equal(info.coordSets, info.distOffsets)) {
+      Value piece = vector::ExtractStridedSliceOp::create(
+          rewriter, loc, distData, distOffset, info.perSetShape, strides);
+      xegpu::StoreMatrixOp::create(
+          rewriter, loc, TypeRange{}, piece, adaptor.getMemDesc(),
+          ValueRange(coords), newConstOffsetsAttr, op.getSubgroupBlockIoAttr(),
+          xegpu::DistributeLayoutAttr{});
+    }
     rewriter.eraseOp(op);
     return success();
   }

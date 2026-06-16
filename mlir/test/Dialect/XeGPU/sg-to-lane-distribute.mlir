@@ -421,6 +421,31 @@ gpu.module @xevm_module{
 }
 
 // -----
+// A partial-subgroup lane layout (lane_layout = [8, 1] uses 8 of 16 lanes)
+// makes each lane responsible for two distribution units along the inner
+// dimension. The load is split into one load_matrix per unit (assembled into
+// the per-lane vector) and the store into one store_matrix per unit.
+// CHECK-LABEL: gpu.func @load_store_matrix_multi_unit({{.*}}) {
+// CHECK-DAG: %[[C8:.*]] = arith.constant 8 : index
+// CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+// CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+// CHECK: %[[LANE_ID:.*]] = gpu.lane_id
+// CHECK: %[[REMU1:.*]] = arith.remui %[[LANE_ID]], %[[C8]]
+// CHECK: %[[REMU2:.*]] = arith.remui %[[REMU1]], %[[C8]]
+// CHECK: %[[M0:.*]] = xegpu.load_matrix %arg0[%[[REMU2]], %[[C0]]] : !xegpu.mem_desc<16x32xbf16>, index, index -> vector<1x1xbf16>
+// CHECK: %[[M1:.*]] = xegpu.load_matrix %arg0[%[[REMU2]], %[[C1]]] : !xegpu.mem_desc<16x32xbf16>, index, index -> vector<1x1xbf16>
+// CHECK: xegpu.store_matrix %[[M0]], %arg0[%[[REMU2]], %[[C0]]] : vector<1x1xbf16>, !xegpu.mem_desc<16x32xbf16>, index, index
+// CHECK: xegpu.store_matrix %[[M1]], %arg0[%[[REMU2]], %[[C1]]] : vector<1x1xbf16>, !xegpu.mem_desc<16x32xbf16>, index, index
+gpu.module @xevm_module{
+  gpu.func @load_store_matrix_multi_unit(%arg0: !xegpu.mem_desc<16x32xbf16>) {
+    %c0 = arith.constant 0 : index
+    %1 = xegpu.load_matrix %arg0[%c0, %c0] <{layout = #xegpu.layout<lane_layout = [8, 1], lane_data = [1, 1]>}> : !xegpu.mem_desc<16x32xbf16>, index, index -> vector<8x2xbf16>
+    xegpu.store_matrix %1, %arg0[%c0, %c0] <{layout = #xegpu.layout<lane_layout = [8, 1], lane_data = [1, 1]>}> : vector<8x2xbf16>, !xegpu.mem_desc<16x32xbf16>, index, index
+    gpu.return
+  }
+}
+
+// -----
 // CHECK-LABEL: gpu.func @vector_broadcast_1d_to_2d_broadcast_within_lane({{.*}}) {
 // CHECK: %[[RED:.*]] = vector.reduction <add>, %{{.*}}, %{{.*}} : vector<16xf16> into f16
 // CHECK: %[[BCAST:.*]] = vector.broadcast %[[RED]] : f16 to vector<16xf16>
