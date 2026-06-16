@@ -1689,6 +1689,107 @@ shuffleDataAsLaneLayoutChange(ConversionPatternRewriter &rewriter, Location loc,
   return res;
 }
 
+/// Performs a subgroup transpose realizing a `convert_layout` whose lane layout
+/// changes from `[1, N]` (N lanes on the inner dim) to `[N, 1]` (N lanes on the
+/// outer dim). `src` is the per-lane distributed source for `[1, N]`, of shape
+/// `N x C` (the outer dim is not distributed, so each lane holds all N rows,
+/// and `C = innerDim / N` columns). The result is the per-lane distributed
+/// vector of shape `1 x (N*C)` for `[N, 1]`.
+///
+/// Implemented as N rounds of `gpu.shuffle` (IDX mode) with a rotating source
+/// lane: in round r, lane j extracts its local row `(j - r) mod N` (C elements
+/// packed into a single <=32-bit value) and reads the partner lane
+/// `(j + r) mod N`, which yields exactly row j's data for the columns owned by
+/// that partner. Returns failure on unsupported shapes/element widths.
+static FailureOr<Value>
+shuffleTransposeLaneLayout(ConversionPatternRewriter &rewriter, Location loc,
+                           Value src, int64_t laneNum) {
+  VectorType srcTy = dyn_cast<VectorType>(src.getType());
+  if (!srcTy || srcTy.getRank() != 2)
+    return failure();
+  int64_t numRows = srcTy.getShape()[0];
+  int64_t numCols = srcTy.getShape()[1];
+  // Each output lane must own exactly one row.
+  if (numRows != laneNum)
+    return failure();
+  Type elemTy = srcTy.getElementType();
+  int64_t elemBits = srcTy.getElementTypeBitWidth();
+  int64_t rowBits = numCols * elemBits;
+  // Pack each lane's per-row slice into a single value that gpu.shuffle can
+  // move (extended to i32 when narrower).
+  if (rowBits != 8 && rowBits != 16 && rowBits != 32)
+    return failure();
+
+  Type i32Ty = rewriter.getI32Type();
+  Type idxTy = rewriter.getIndexType();
+  Type rowIntTy = rewriter.getIntegerType(rowBits);
+  VectorType rowSliceTy = VectorType::get({numCols}, elemTy);
+  VectorType rowIntVecTy = VectorType::get({1}, rowIntTy);
+  int64_t numOutCols = laneNum * numCols;
+  VectorType outTy = VectorType::get({1, numOutCols}, elemTy);
+  VectorType out1dTy = VectorType::get({numOutCols}, elemTy);
+
+  Value laneId = gpu::LaneIdOp::create(rewriter, loc, idxTy,
+                                       /*upperBound=*/mlir::IntegerAttr());
+  Value cLaneNum = arith::ConstantIndexOp::create(rewriter, loc, laneNum);
+  Value width = arith::ConstantOp::create(rewriter, loc, i32Ty,
+                                          rewriter.getI32IntegerAttr(laneNum));
+  Value out =
+      arith::ConstantOp::create(rewriter, loc, rewriter.getZeroAttr(out1dTy));
+
+  // Pack each row's `numCols` elements into a single `rowIntTy` scalar so that
+  // per-row access uses a dynamically-indexed *scalar* extract (always legal),
+  // rather than a dynamically-indexed sub-vector extract.
+  VectorType packed2dTy = VectorType::get({numRows, 1}, rowIntTy);
+  VectorType packed1dTy = VectorType::get({numRows}, rowIntTy);
+  Value srcPacked = vector::ShapeCastOp::create(
+      rewriter, loc, packed1dTy,
+      vector::BitCastOp::create(rewriter, loc, packed2dTy, src));
+
+  for (int64_t r = 0; r < laneNum; ++r) {
+    // localRow = (laneId + (N - r)) mod N  ==  (laneId - r) mod N
+    Value addend =
+        arith::ConstantIndexOp::create(rewriter, loc, (laneNum - r) % laneNum);
+    Value localRow = arith::RemUIOp::create(
+        rewriter, loc, arith::AddIOp::create(rewriter, loc, laneId, addend),
+        cLaneNum);
+    // Extract the packed scalar for that row.
+    Value packed = vector::ExtractOp::create(
+        rewriter, loc, srcPacked, SmallVector<OpFoldResult>{localRow});
+    Value shufIn = packed;
+    if (rowBits < 32)
+      shufIn = arith::ExtUIOp::create(rewriter, loc, i32Ty, packed);
+    // srcLane = (laneId + r) mod N
+    Value rIdx = arith::ConstantIndexOp::create(rewriter, loc, r);
+    Value srcLane = arith::RemUIOp::create(
+        rewriter, loc, arith::AddIOp::create(rewriter, loc, laneId, rIdx),
+        cLaneNum);
+    Value srcLaneI32 =
+        arith::IndexCastOp::create(rewriter, loc, i32Ty, srcLane);
+    Value recv = gpu::ShuffleOp::create(rewriter, loc, shufIn, srcLaneI32,
+                                        width, gpu::ShuffleMode::IDX)
+                     .getResult(0);
+    Value recvInt = recv;
+    if (rowBits < 32)
+      recvInt = arith::TruncIOp::create(rewriter, loc, rowIntTy, recv);
+    Value recvIntVec =
+        vector::BroadcastOp::create(rewriter, loc, rowIntVecTy, recvInt);
+    Value recvSlice =
+        vector::BitCastOp::create(rewriter, loc, rowSliceTy, recvIntVec);
+    // Write the C received elements to out[srcLane + b*N], b = 0..C-1.
+    for (int64_t b = 0; b < numCols; ++b) {
+      Value elem = vector::ExtractOp::create(rewriter, loc, recvSlice, b);
+      Value col = arith::AddIOp::create(
+          rewriter, loc, srcLane,
+          arith::ConstantIndexOp::create(rewriter, loc, b * laneNum));
+      out = vector::InsertOp::create(rewriter, loc, elem, out,
+                                     SmallVector<OpFoldResult>{col});
+    }
+  }
+  // Reshape the 1D accumulator to the distributed `1 x (N*C)` per-lane vector.
+  return Value(vector::ShapeCastOp::create(rewriter, loc, outTy, out));
+}
+
 /// Folds a subgroup-level ConvertLayout op with compatible lane layouts.
 struct SgToLaneConvertLayout
     : public OpConversionPattern<xegpu::ConvertLayoutOp> {
@@ -1780,6 +1881,44 @@ struct SgToLaneConvertLayout
         if (allSlices && numSlices == blockFactor) {
           rewriter.replaceOp(op, adaptor.getSource());
           return success();
+        }
+      }
+    }
+
+    // Lane transpose: the distributed lane dimension moves from the inner dim
+    // to the outer dim, i.e. `[1, N]` -> `[M, 1]`. Realize it as a subgroup
+    // transpose to `[N, 1]` (via gpu.shuffle), optionally followed by a
+    // lane-count shrink `[N, 1]` -> `[M, 1]` when `M < N`.
+    if (inputLayout.getEffectiveOrderAsInt() ==
+            targetLayout.getEffectiveOrderAsInt() &&
+        inputLayout.getRank() == 2 && targetLayout.getRank() == 2) {
+      auto laneLayout = inputLayout.getEffectiveLaneLayoutAsInt();
+      auto targetLaneLayout = targetLayout.getEffectiveLaneLayoutAsInt();
+      auto laneData = inputLayout.getEffectiveLaneDataAsInt();
+      auto targetLaneData = targetLayout.getEffectiveLaneDataAsInt();
+      SmallVector<int64_t> unitData({1, 1});
+      if (laneLayout.size() == 2 && targetLaneLayout.size() == 2 &&
+          laneData == unitData && targetLaneData == unitData &&
+          laneLayout[0] == 1 && laneLayout[1] > 1 && targetLaneLayout[1] == 1 &&
+          targetLaneLayout[0] > 1) {
+        int64_t laneNum = laneLayout[1];
+        int64_t targetLaneNum = targetLaneLayout[0];
+        if (targetLaneNum <= laneNum) {
+          FailureOr<Value> transposed = shuffleTransposeLaneLayout(
+              rewriter, op.getLoc(), adaptor.getSource(), laneNum);
+          if (succeeded(transposed)) {
+            Value res = *transposed;
+            if (targetLaneNum < laneNum) {
+              FailureOr<Value> shrunk = shuffleDataAsLaneLayoutChange(
+                  rewriter, op.getLoc(), res, laneNum, targetLaneNum);
+              if (failed(shrunk))
+                return rewriter.notifyMatchFailure(
+                    op, "failed to shrink lanes after transpose");
+              res = *shrunk;
+            }
+            rewriter.replaceOp(op, res);
+            return success();
+          }
         }
       }
     }

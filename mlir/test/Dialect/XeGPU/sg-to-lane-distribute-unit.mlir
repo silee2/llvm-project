@@ -1444,3 +1444,42 @@ gpu.func @convert_layout_partial_subgroup() {
   gpu.return
 }
 }
+
+// -----
+// A pure lane-layout transpose [1, 16] -> [16, 1] (the distributed lane axis
+// moves from the inner dim to the outer dim) is lowered to a subgroup transpose
+// using a rotating gpu.shuffle per lane.
+// CHECK-LABEL: gpu.func @convert_layout_transpose
+// CHECK-NOT:      xegpu.convert_layout
+// CHECK-COUNT-16: gpu.shuffle idx
+// CHECK:          gpu.return
+gpu.module @xevm_module {
+gpu.func @convert_layout_transpose() {
+  %src = "some_op"() : () -> vector<16x32xbf16>
+  %t = xegpu.convert_layout %src
+    <{input_layout  = #xegpu.layout<lane_layout = [1, 16], lane_data = [1, 1]>,
+      target_layout = #xegpu.layout<lane_layout = [16, 1], lane_data = [1, 1]>}> : vector<16x32xbf16>
+  "use"(%t) {layout_operand_0 = #xegpu.layout<lane_layout = [16, 1], lane_data = [1, 1]>} : (vector<16x32xbf16>) -> ()
+  gpu.return
+}
+}
+
+// -----
+// A lane-layout transpose that also shrinks the distributed lane count
+// [1, 16] -> [8, 1] is lowered as a transpose to [16, 1] (rotating gpu.shuffle
+// idx) followed by a lane-count shrink (gpu.shuffle up).
+// CHECK-LABEL: gpu.func @convert_layout_transpose_shrink
+// CHECK-NOT:  xegpu.convert_layout
+// CHECK:      gpu.shuffle idx
+// CHECK:      gpu.shuffle up
+// CHECK:      gpu.return
+gpu.module @xevm_module {
+gpu.func @convert_layout_transpose_shrink() {
+  %src = "some_op"() : () -> vector<16x32xbf16>
+  %t = xegpu.convert_layout %src
+    <{input_layout  = #xegpu.layout<lane_layout = [1, 16], lane_data = [1, 1]>,
+      target_layout = #xegpu.layout<lane_layout = [8, 1], lane_data = [1, 1]>}> : vector<16x32xbf16>
+  "use"(%t) {layout_operand_0 = #xegpu.layout<lane_layout = [8, 1], lane_data = [1, 1]>} : (vector<16x32xbf16>) -> ()
+  gpu.return
+}
+}
