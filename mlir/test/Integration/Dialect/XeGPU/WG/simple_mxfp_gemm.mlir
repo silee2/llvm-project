@@ -139,16 +139,83 @@ module @gemm attributes {gpu.container_module} {
     %c0f32 = arith.constant 0.0 : f32
     %c1f8E8M0FNU = arith.constant 1.0 : f8E8M0FNU
 
+    // The 8 magnitudes e2m1 can represent, indexed by their e2m1 bit pattern:
+    // code c encodes lut[c], so a packed byte holding two copies of code c is
+    // c * 0x11. Every one of these is also exact in f8E5M2, f8E4M3FN, bf16 and
+    // f32, so the fp4, fp8 and bf16 tests can share one input set and one
+    // reference result.
+    %lut = memref.alloc() : memref<8xf32>
+    %l0 = arith.constant 0.0 : f32
+    %l1 = arith.constant 0.5 : f32
+    %l2 = arith.constant 1.0 : f32
+    %l3 = arith.constant 1.5 : f32
+    %l4 = arith.constant 2.0 : f32
+    %l5 = arith.constant 3.0 : f32
+    %l6 = arith.constant 4.0 : f32
+    %l7 = arith.constant 6.0 : f32
+    memref.store %l0, %lut[%c0] : memref<8xf32>
+    %i1 = arith.constant 1 : index
+    memref.store %l1, %lut[%i1] : memref<8xf32>
+    %i2 = arith.constant 2 : index
+    memref.store %l2, %lut[%i2] : memref<8xf32>
+    %i3 = arith.constant 3 : index
+    memref.store %l3, %lut[%i3] : memref<8xf32>
+    %i4 = arith.constant 4 : index
+    memref.store %l4, %lut[%i4] : memref<8xf32>
+    %i5 = arith.constant 5 : index
+    memref.store %l5, %lut[%i5] : memref<8xf32>
+    %i6 = arith.constant 6 : index
+    memref.store %l6, %lut[%i6] : memref<8xf32>
+    %i7 = arith.constant 7 : index
+    memref.store %l7, %lut[%i7] : memref<8xf32>
+
+    %c8 = arith.constant 8 : index
+    %c2 = arith.constant 2 : index
+    %c2048 = arith.constant 2048 : index
+    // 0x11: both nibbles of the byte get the same code, so the packing order
+    // within a byte does not affect the result.
+    %c0x11 = arith.constant 17 : i8
+
+    // f32 shadows of A and B, filled from the same loop that writes the device
+    // operands, so the reference cannot drift from what the kernel is given.
+    %A_f32 = memref.alloc() : memref<256x4096xf32>
+    %B_f32 = memref.alloc() : memref<4096x256xf32>
+
+    // A is row major fp4, two values per byte along K, so byte m of row i holds
+    // K elements 2m and 2m+1.
     %A_flatbytes = memref.alloc() : memref<524288xi8>
     %A = memref.view %A_flatbytes[%c0][] : memref<524288xi8> to memref<256x4096xf4E2M1FN>
-    scf.for %i = %c0 to %c512K step %c1 {
-      memref.store %c1packed_e2m1, %A_flatbytes[%i] : memref<524288xi8>
+    scf.for %i = %c0 to %c256 step %c1 {
+      %row = arith.muli %i, %c2048 : index
+      scf.for %m = %c0 to %c2048 step %c1 {
+        %sum = arith.addi %i, %m : index
+        %idx = arith.remui %sum, %c8 : index
+        %code = arith.index_cast %idx : index to i8
+        %byte = arith.muli %code, %c0x11 : i8
+        %pos = arith.addi %row, %m : index
+        memref.store %byte, %A_flatbytes[%pos] : memref<524288xi8>
+        %v = memref.load %lut[%idx] : memref<8xf32>
+        %k0 = arith.muli %m, %c2 : index
+        %k1 = arith.addi %k0, %c1 : index
+        memref.store %v, %A_f32[%i, %k0] : memref<256x4096xf32>
+        memref.store %v, %A_f32[%i, %k1] : memref<256x4096xf32>
+      }
     }
 
+    // B is fp4 packed along K as well, so byte row m holds K elements 2m, 2m+1.
     %B = memref.alloc() : memref<2048x256xi8>
-    scf.for %i = %c0 to %c2K step %c1 {
+    scf.for %m = %c0 to %c2K step %c1 {
       scf.for %j = %c0 to %c256 step %c1 {
-        memref.store %c1packed_e2m1, %B[%i, %j] : memref<2048x256xi8>
+        %sum = arith.addi %j, %m : index
+        %idx = arith.remui %sum, %c8 : index
+        %code = arith.index_cast %idx : index to i8
+        %byte = arith.muli %code, %c0x11 : i8
+        memref.store %byte, %B[%m, %j] : memref<2048x256xi8>
+        %v = memref.load %lut[%idx] : memref<8xf32>
+        %k0 = arith.muli %m, %c2 : index
+        %k1 = arith.addi %k0, %c1 : index
+        memref.store %v, %B_f32[%k0, %j] : memref<4096x256xf32>
+        memref.store %v, %B_f32[%k1, %j] : memref<4096x256xf32>
       }
     }
 
@@ -174,11 +241,22 @@ module @gemm attributes {gpu.container_module} {
     }
 
 
-    %c4Kf = arith.constant 4096.0 : f32
+    // Reference GEMM on the host, over the f32 shadows of the same operands.
+    // Every product is a multiple of 0.25 and the largest result is well under
+    // 2^24, so the f32 accumulation is exact and independent of summation
+    // order: the device result has to match bit for bit.
     %C_ref = memref.alloc() : memref<256x256xf32>
     scf.for %i = %c0 to %c256 step %c1 {
       scf.for %j = %c0 to %c256 step %c1 {
-        memref.store %c4Kf, %C_ref[%i, %j] : memref<256x256xf32>
+        %acc = scf.for %k = %c0 to %c4K step %c1
+            iter_args(%sum = %c0f32) -> (f32) {
+          %a = memref.load %A_f32[%i, %k] : memref<256x4096xf32>
+          %b = memref.load %B_f32[%k, %j] : memref<4096x256xf32>
+          %p = arith.mulf %a, %b : f32
+          %s = arith.addf %sum, %p : f32
+          scf.yield %s : f32
+        }
+        memref.store %acc, %C_ref[%i, %j] : memref<256x256xf32>
       }
     }
 
@@ -191,6 +269,10 @@ module @gemm attributes {gpu.container_module} {
 
     // CHECK: 0
     memref.dealloc %A_flatbytes : memref<524288xi8>
+    memref.dealloc %A_f32 : memref<256x4096xf32>
+    memref.dealloc %B_f32 : memref<4096x256xf32>
+    memref.dealloc %lut : memref<8xf32>
+    memref.dealloc %C_ref : memref<256x256xf32>
     memref.dealloc %B : memref<2048x256xi8>
     memref.dealloc %A_scale : memref<256x128xf8E8M0FNU>
     memref.dealloc %B_scale : memref<128x256xf8E8M0FNU>
