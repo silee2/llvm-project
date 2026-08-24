@@ -167,88 +167,6 @@ module @gemm attributes {gpu.container_module} {
     %c0f32 = arith.constant 0.0 : f32
     %c1f8E8M0FNU = arith.constant 1.0 : f8E8M0FNU
 
-    %abase = memref.alloc() : memref<16xf32>
-    %abaseb = memref.alloc() : memref<16xbf16>
-    %ab0 = arith.constant 0.000000e+00 : f32
-    %abb0 = arith.constant 0.000000e+00 : bf16
-    %an0 = arith.constant 0 : index
-    memref.store %ab0, %abase[%an0] : memref<16xf32>
-    memref.store %abb0, %abaseb[%an0] : memref<16xbf16>
-    %ab1 = arith.constant 2.000000e+00 : f32
-    %abb1 = arith.constant 2.000000e+00 : bf16
-    %an1 = arith.constant 1 : index
-    memref.store %ab1, %abase[%an1] : memref<16xf32>
-    memref.store %abb1, %abaseb[%an1] : memref<16xbf16>
-    %ab2 = arith.constant 4.000000e+00 : f32
-    %abb2 = arith.constant 4.000000e+00 : bf16
-    %an2 = arith.constant 2 : index
-    memref.store %ab2, %abase[%an2] : memref<16xf32>
-    memref.store %abb2, %abaseb[%an2] : memref<16xbf16>
-    %ab3 = arith.constant 6.000000e+00 : f32
-    %abb3 = arith.constant 6.000000e+00 : bf16
-    %an3 = arith.constant 3 : index
-    memref.store %ab3, %abase[%an3] : memref<16xf32>
-    memref.store %abb3, %abaseb[%an3] : memref<16xbf16>
-    %ab4 = arith.constant 0.000000e+00 : f32
-    %abb4 = arith.constant 0.000000e+00 : bf16
-    %an4 = arith.constant 4 : index
-    memref.store %ab4, %abase[%an4] : memref<16xf32>
-    memref.store %abb4, %abaseb[%an4] : memref<16xbf16>
-    %ab5 = arith.constant 1.000000e+00 : f32
-    %abb5 = arith.constant 1.000000e+00 : bf16
-    %an5 = arith.constant 5 : index
-    memref.store %ab5, %abase[%an5] : memref<16xf32>
-    memref.store %abb5, %abaseb[%an5] : memref<16xbf16>
-    %ab6 = arith.constant 2.000000e+00 : f32
-    %abb6 = arith.constant 2.000000e+00 : bf16
-    %an6 = arith.constant 6 : index
-    memref.store %ab6, %abase[%an6] : memref<16xf32>
-    memref.store %abb6, %abaseb[%an6] : memref<16xbf16>
-    %ab7 = arith.constant 3.000000e+00 : f32
-    %abb7 = arith.constant 3.000000e+00 : bf16
-    %an7 = arith.constant 7 : index
-    memref.store %ab7, %abase[%an7] : memref<16xf32>
-    memref.store %abb7, %abaseb[%an7] : memref<16xbf16>
-    %ab8 = arith.constant 0.000000e+00 : f32
-    %abb8 = arith.constant 0.000000e+00 : bf16
-    %an8 = arith.constant 8 : index
-    memref.store %ab8, %abase[%an8] : memref<16xf32>
-    memref.store %abb8, %abaseb[%an8] : memref<16xbf16>
-    %ab9 = arith.constant 5.000000e-01 : f32
-    %abb9 = arith.constant 5.000000e-01 : bf16
-    %an9 = arith.constant 9 : index
-    memref.store %ab9, %abase[%an9] : memref<16xf32>
-    memref.store %abb9, %abaseb[%an9] : memref<16xbf16>
-    %ab10 = arith.constant 1.000000e+00 : f32
-    %abb10 = arith.constant 1.000000e+00 : bf16
-    %an10 = arith.constant 10 : index
-    memref.store %ab10, %abase[%an10] : memref<16xf32>
-    memref.store %abb10, %abaseb[%an10] : memref<16xbf16>
-    %ab11 = arith.constant 1.500000e+00 : f32
-    %abb11 = arith.constant 1.500000e+00 : bf16
-    %an11 = arith.constant 11 : index
-    memref.store %ab11, %abase[%an11] : memref<16xf32>
-    memref.store %abb11, %abaseb[%an11] : memref<16xbf16>
-    %ab12 = arith.constant 0.000000e+00 : f32
-    %abb12 = arith.constant 0.000000e+00 : bf16
-    %an12 = arith.constant 12 : index
-    memref.store %ab12, %abase[%an12] : memref<16xf32>
-    memref.store %abb12, %abaseb[%an12] : memref<16xbf16>
-    %ab13 = arith.constant 2.500000e-01 : f32
-    %abb13 = arith.constant 2.500000e-01 : bf16
-    %an13 = arith.constant 13 : index
-    memref.store %ab13, %abase[%an13] : memref<16xf32>
-    memref.store %abb13, %abaseb[%an13] : memref<16xbf16>
-    %ab14 = arith.constant 5.000000e-01 : f32
-    %abb14 = arith.constant 5.000000e-01 : bf16
-    %an14 = arith.constant 14 : index
-    memref.store %ab14, %abase[%an14] : memref<16xf32>
-    memref.store %abb14, %abaseb[%an14] : memref<16xbf16>
-    %ab15 = arith.constant 7.500000e-01 : f32
-    %abb15 = arith.constant 7.500000e-01 : bf16
-    %an15 = arith.constant 15 : index
-    memref.store %ab15, %abase[%an15] : memref<16xf32>
-    memref.store %abb15, %abaseb[%an15] : memref<16xbf16>
     // Three block scales for B, one per K block of 32. Per the MX spec a scale
     // is a power of two, so folding it into the reference cannot round.
     %sc = memref.alloc() : memref<3xf8E8M0FNU>
@@ -282,22 +200,6 @@ module @gemm attributes {gpu.container_module} {
     // the derived scale is exactly 1, 1/2, 1/4 or 1/8 depending on the block.
     // Rescaling maps every family onto {0, 2, 4, 6}, so the quantization is
     // lossless and never reaches the clamping path.
-    %A = memref.alloc() : memref<256x4096xbf16>
-    scf.for %i = %c0 to %c256 step %c1 {
-      scf.for %k = %c0 to %c4K step %c1 {
-        %t = arith.divui %k, %c32 : index
-        %fam = arith.remui %t, %c4i : index
-        %ik = arith.addi %i, %k : index
-        %col = arith.remui %ik, %c4i : index
-        %base = arith.muli %fam, %c4i : index
-        %aidx = arith.addi %base, %col : index
-        %vb = memref.load %abaseb[%aidx] : memref<16xbf16>
-        %v = memref.load %abase[%aidx] : memref<16xf32>
-        memref.store %vb, %A[%i, %k] : memref<256x4096xbf16>
-        memref.store %v, %A_f32[%i, %k] : memref<256x4096xf32>
-      }
-    }
-
     // The 8 magnitudes e2m1 can represent, indexed by their e2m1 bit pattern.
     %lut = memref.alloc() : memref<8xf32>
     %i3 = arith.constant 3 : index
@@ -321,6 +223,33 @@ module @gemm attributes {gpu.container_module} {
     memref.store %f5, %lut[%i5] : memref<8xf32>
     memref.store %f6, %lut[%i6] : memref<8xf32>
     memref.store %f7, %lut[%i7] : memref<8xf32>
+
+    // A's per-K-block divisor, matching what the MX rule derives from the
+    // block's amax. Powers of two, so dividing cannot round.
+    %adiv = memref.alloc() : memref<3xf32>
+    %ad0 = arith.constant 1.0 : f32
+    %ad1 = arith.constant 2.0 : f32
+    %ad2 = arith.constant 4.0 : f32
+    memref.store %ad0, %adiv[%c0] : memref<3xf32>
+    memref.store %ad1, %adiv[%i1] : memref<3xf32>
+    memref.store %ad2, %adiv[%i2] : memref<3xf32>
+
+    %A = memref.alloc() : memref<256x4096xbf16>
+    scf.for %i = %c0 to %c256 step %c1 {
+      scf.for %k = %c0 to %c4K step %c1 {
+        %t = arith.divui %k, %c32 : index
+        %fam = arith.remui %t, %c3 : index
+        %ik = arith.addi %i, %k : index
+        %idx = arith.remui %ik, %c8 : index
+        %v = memref.load %lut[%idx] : memref<8xf32>
+        %d = memref.load %adiv[%fam] : memref<3xf32>
+        %a = arith.divf %v, %d : f32
+        %ab = arith.truncf %a : f32 to bf16
+        memref.store %ab, %A[%i, %k] : memref<256x4096xbf16>
+        memref.store %a, %A_f32[%i, %k] : memref<256x4096xf32>
+      }
+    }
+
 
 
     %lut8 = memref.alloc() : memref<8xf8E5M2>
@@ -399,8 +328,7 @@ module @gemm attributes {gpu.container_module} {
     memref.dealloc %A_f32 : memref<256x4096xf32>
     memref.dealloc %B_f32 : memref<4096x256xf32>
     memref.dealloc %lut : memref<8xf32>
-    memref.dealloc %abase : memref<16xf32>
-    memref.dealloc %abaseb : memref<16xbf16>
+    memref.dealloc %adiv : memref<3xf32>
     memref.dealloc %sc : memref<3xf8E8M0FNU>
     memref.dealloc %scf32 : memref<3xf32>
     memref.dealloc %A : memref<256x4096xbf16>
