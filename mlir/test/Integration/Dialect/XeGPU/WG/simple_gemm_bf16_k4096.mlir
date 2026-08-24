@@ -95,11 +95,12 @@ module @gemm attributes {gpu.container_module} {
     %c0f32 = arith.constant 0.0 : f32
     %c1bf16 = arith.constant 1.0 : bf16
 
-    // The 8 magnitudes e2m1 can represent, which are exact in bf16 and f32 too,
-    // so this test shares its input set and reference result with the fp4 and
-    // fp8 tests.
+    // Input set shared by all seven workgroup tests. A carries a per-K-block
+    // divisor and B a per-K-block scale, both powers of two, so the formats that
+    // quantize can realise the same values with their own scales: for A the
+    // divisor is what the MX rule derives from the block's amax, and for B the
+    // scale is passed in. bf16 has no scales, so it stores the values directly.
     %lut = memref.alloc() : memref<8xf32>
-    %lutb = memref.alloc() : memref<8xbf16>
     %i1 = arith.constant 1 : index
     %i2 = arith.constant 2 : index
     %i3 = arith.constant 3 : index
@@ -123,26 +124,20 @@ module @gemm attributes {gpu.container_module} {
     memref.store %f5, %lut[%i5] : memref<8xf32>
     memref.store %f6, %lut[%i6] : memref<8xf32>
     memref.store %f7, %lut[%i7] : memref<8xf32>
-    %b0 = arith.constant 0.0 : bf16
-    %b1 = arith.constant 0.5 : bf16
-    %b2 = arith.constant 1.0 : bf16
-    %b3 = arith.constant 1.5 : bf16
-    %b4 = arith.constant 2.0 : bf16
-    %b5 = arith.constant 3.0 : bf16
-    %b6 = arith.constant 4.0 : bf16
-    %b7 = arith.constant 6.0 : bf16
-    memref.store %b0, %lutb[%c0] : memref<8xbf16>
-    memref.store %b1, %lutb[%i1] : memref<8xbf16>
-    memref.store %b2, %lutb[%i2] : memref<8xbf16>
-    memref.store %b3, %lutb[%i3] : memref<8xbf16>
-    memref.store %b4, %lutb[%i4] : memref<8xbf16>
-    memref.store %b5, %lutb[%i5] : memref<8xbf16>
-    memref.store %b6, %lutb[%i6] : memref<8xbf16>
-    memref.store %b7, %lutb[%i7] : memref<8xbf16>
+
+    // A divisors and B scales, three of each, cycling per K block of 32.
+    %adiv = memref.alloc() : memref<3xf32>
+    %bsc = memref.alloc() : memref<3xf32>
+    memref.store %f2, %adiv[%c0] : memref<3xf32>
+    memref.store %f4, %adiv[%i1] : memref<3xf32>
+    memref.store %f6, %adiv[%i2] : memref<3xf32>
+    memref.store %f1, %bsc[%c0] : memref<3xf32>
+    memref.store %f2, %bsc[%i1] : memref<3xf32>
+    memref.store %f4, %bsc[%i2] : memref<3xf32>
 
     %c8 = arith.constant 8 : index
-    %c2 = arith.constant 2 : index
-    %c2048 = arith.constant 2048 : index
+    %c3 = arith.constant 3 : index
+    %c32 = arith.constant 32 : index
 
     // f32 shadows of A and B, filled from the same loop that writes the device
     // operands, so the reference cannot drift from what the kernel is given.
@@ -151,41 +146,34 @@ module @gemm attributes {gpu.container_module} {
 
     %A = memref.alloc() : memref<256x4096xbf16>
     scf.for %i = %c0 to %c256 step %c1 {
-      scf.for %m = %c0 to %c2048 step %c1 {
-        %k0 = arith.muli %m, %c2 : index
-        %k1 = arith.addi %k0, %c1 : index
-        %s0 = arith.addi %i, %k0 : index
-        %s1 = arith.addi %i, %k1 : index
-        %idx0 = arith.remui %s0, %c8 : index
-        %idx1 = arith.remui %s1, %c8 : index
-        %vb0 = memref.load %lutb[%idx0] : memref<8xbf16>
-        %vb1 = memref.load %lutb[%idx1] : memref<8xbf16>
-        %v0 = memref.load %lut[%idx0] : memref<8xf32>
-        %v1 = memref.load %lut[%idx1] : memref<8xf32>
-        memref.store %vb0, %A[%i, %k0] : memref<256x4096xbf16>
-        memref.store %vb1, %A[%i, %k1] : memref<256x4096xbf16>
-        memref.store %v0, %A_f32[%i, %k0] : memref<256x4096xf32>
-        memref.store %v1, %A_f32[%i, %k1] : memref<256x4096xf32>
+      scf.for %k = %c0 to %c4K step %c1 {
+        %t = arith.divui %k, %c32 : index
+        %fam = arith.remui %t, %c3 : index
+        %ik = arith.addi %i, %k : index
+        %idx = arith.remui %ik, %c8 : index
+        %v = memref.load %lut[%idx] : memref<8xf32>
+        %d = memref.load %adiv[%fam] : memref<3xf32>
+        %a = arith.divf %v, %d : f32
+        %ab = arith.truncf %a : f32 to bf16
+        memref.store %ab, %A[%i, %k] : memref<256x4096xbf16>
+        memref.store %a, %A_f32[%i, %k] : memref<256x4096xf32>
       }
     }
 
     %B = memref.alloc() : memref<4096x256xbf16>
-    scf.for %m = %c0 to %c2048 step %c1 {
+    scf.for %k = %c0 to %c4K step %c1 {
+      %t = arith.divui %k, %c32 : index
       scf.for %j = %c0 to %c256 step %c1 {
-        %k0 = arith.muli %m, %c2 : index
-        %k1 = arith.addi %k0, %c1 : index
-        %s0 = arith.addi %j, %k0 : index
-        %s1 = arith.addi %j, %k1 : index
-        %idx0 = arith.remui %s0, %c8 : index
-        %idx1 = arith.remui %s1, %c8 : index
-        %vb0 = memref.load %lutb[%idx0] : memref<8xbf16>
-        %vb1 = memref.load %lutb[%idx1] : memref<8xbf16>
-        %v0 = memref.load %lut[%idx0] : memref<8xf32>
-        %v1 = memref.load %lut[%idx1] : memref<8xf32>
-        memref.store %vb0, %B[%k0, %j] : memref<4096x256xbf16>
-        memref.store %vb1, %B[%k1, %j] : memref<4096x256xbf16>
-        memref.store %v0, %B_f32[%k0, %j] : memref<4096x256xf32>
-        memref.store %v1, %B_f32[%k1, %j] : memref<4096x256xf32>
+        %jk = arith.addi %j, %k : index
+        %idx = arith.remui %jk, %c8 : index
+        %v = memref.load %lut[%idx] : memref<8xf32>
+        %ts = arith.addi %t, %j : index
+        %sidx = arith.remui %ts, %c3 : index
+        %s = memref.load %bsc[%sidx] : memref<3xf32>
+        %b = arith.mulf %v, %s : f32
+        %bb = arith.truncf %b : f32 to bf16
+        memref.store %bb, %B[%k, %j] : memref<4096x256xbf16>
+        memref.store %b, %B_f32[%k, %j] : memref<4096x256xf32>
       }
     }
 
@@ -212,6 +200,11 @@ module @gemm attributes {gpu.container_module} {
     // CHECK: 0
     memref.dealloc %A : memref<256x4096xbf16>
     memref.dealloc %B : memref<4096x256xbf16>
+    memref.dealloc %A_f32 : memref<256x4096xf32>
+    memref.dealloc %B_f32 : memref<4096x256xf32>
+    memref.dealloc %lut : memref<8xf32>
+    memref.dealloc %adiv : memref<3xf32>
+    memref.dealloc %bsc : memref<3xf32>
     memref.dealloc %C : memref<256x256xf32>
     memref.dealloc %C_ref : memref<256x256xf32>
     memref.dealloc %C_res : memref<256x256xf32>
