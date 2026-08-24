@@ -219,15 +219,29 @@ module @gemm attributes {gpu.container_module} {
     %A_f32 = memref.alloc() : memref<256x4096xf32>
     %B_f32 = memref.alloc() : memref<4096x256xf32>
 
+    // A's per-K-block divisor, matching what the MX rule derives from the
+    // block's amax. Powers of two, so dividing cannot round.
+    %adiv = memref.alloc() : memref<3xf32>
+    %ad0 = arith.constant 1.0 : f32
+    %ad1 = arith.constant 2.0 : f32
+    %ad2 = arith.constant 4.0 : f32
+    memref.store %ad0, %adiv[%c0] : memref<3xf32>
+    memref.store %ad1, %adiv[%i1] : memref<3xf32>
+    memref.store %ad2, %adiv[%i2] : memref<3xf32>
+
     %A = memref.alloc() : memref<256x4096xbf16>
     scf.for %i = %c0 to %c256 step %c1 {
       scf.for %k = %c0 to %c4K step %c1 {
-        %s = arith.addi %i, %k : index
-        %idx = arith.remui %s, %c8 : index
-        %vb = memref.load %lutb[%idx] : memref<8xbf16>
+        %t = arith.divui %k, %c32 : index
+        %fam = arith.remui %t, %c3 : index
+        %ik = arith.addi %i, %k : index
+        %idx = arith.remui %ik, %c8 : index
         %v = memref.load %lut[%idx] : memref<8xf32>
-        memref.store %vb, %A[%i, %k] : memref<256x4096xbf16>
-        memref.store %v, %A_f32[%i, %k] : memref<256x4096xf32>
+        %d = memref.load %adiv[%fam] : memref<3xf32>
+        %a = arith.divf %v, %d : f32
+        %ab = arith.truncf %a : f32 to bf16
+        memref.store %ab, %A[%i, %k] : memref<256x4096xbf16>
+        memref.store %a, %A_f32[%i, %k] : memref<256x4096xf32>
       }
     }
 
@@ -287,6 +301,7 @@ module @gemm attributes {gpu.container_module} {
     memref.dealloc %A_f32 : memref<256x4096xf32>
     memref.dealloc %B_f32 : memref<4096x256xf32>
     memref.dealloc %lut : memref<8xf32>
+    memref.dealloc %adiv : memref<3xf32>
     memref.dealloc %lut8 : memref<8xf8E5M2>
     memref.dealloc %lutb : memref<8xbf16>
     memref.dealloc %sc : memref<3xf8E8M0FNU>
