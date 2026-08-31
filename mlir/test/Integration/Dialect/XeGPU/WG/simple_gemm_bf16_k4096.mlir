@@ -43,20 +43,20 @@ module @gemm attributes {gpu.container_module} {
 
       // Load initial C
       %cd_tdesc = xegpu.create_nd_tdesc %arg2 : memref<256x256xf32> -> !xegpu.tensor_desc<32x32xf32, #c>
-      %c_init = xegpu.load_nd %cd_tdesc[%m, %n] {layout = #c}: !xegpu.tensor_desc<32x32xf32, #c> -> vector<32x32xf32>
+      %c_init = xegpu.load_nd %cd_tdesc[%m, %n] <{layout = #c}>: !xegpu.tensor_desc<32x32xf32, #c> -> vector<32x32xf32>
 
       %res = scf.for %k = %c0 to %kbound step %kstep
         iter_args(%c_partial = %c_init) -> (vector<32x32xf32>) {
-        %a = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a}: !xegpu.tensor_desc<32x256xbf16> -> vector<32x256xbf16>
-        %b = xegpu.load_nd %b_tdesc[%k, %n] {layout = #b}: !xegpu.tensor_desc<256x32xbf16> -> vector<256x32xbf16>
+        %a = xegpu.load_nd %a_tdesc[%m, %k] <{layout = #a}>: !xegpu.tensor_desc<32x256xbf16> -> vector<32x256xbf16>
+        %b = xegpu.load_nd %b_tdesc[%k, %n] <{layout = #b}>: !xegpu.tensor_desc<256x32xbf16> -> vector<256x32xbf16>
         %new_c_partial = xegpu.dpas %a, %b, %c_partial
-              {layout_a = #a, layout_b = #b, layout_cd = #c}
+              <{layout_a = #a, layout_b = #b, layout_cd = #c}>
             : vector<32x256xbf16>, vector<256x32xbf16>, vector<32x32xf32> -> vector<32x32xf32>
         scf.yield %new_c_partial : vector<32x32xf32>
       }
 
       // store_nd with offset
-      xegpu.store_nd %res, %cd_tdesc[%m, %n] {layout = #c} : vector<32x32xf32>, !xegpu.tensor_desc<32x32xf32, #c>
+      xegpu.store_nd %res, %cd_tdesc[%m, %n] <{layout = #c}> : vector<32x32xf32>, !xegpu.tensor_desc<32x32xf32, #c>
       gpu.return
     }
   }

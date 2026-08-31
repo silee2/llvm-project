@@ -53,27 +53,27 @@ module @gemm attributes {gpu.container_module} {
 
       // Load initial C
       %cd_tdesc = xegpu.create_nd_tdesc %arg4 : memref<256x256xf32> -> !xegpu.tensor_desc<32x32xf32, #c>
-      %c_init = xegpu.load_nd %cd_tdesc[%m, %n] {layout = #c}: !xegpu.tensor_desc<32x32xf32, #c> -> vector<32x32xf32>
+      %c_init = xegpu.load_nd %cd_tdesc[%m, %n] <{layout = #c}>: !xegpu.tensor_desc<32x32xf32, #c> -> vector<32x32xf32>
 
       %res:2 = scf.for %k = %c0 to %kbound step %kstep
         iter_args(%c_partial = %c_init, %kscale = %c0) -> (vector<32x32xf32>, index) {
         // A and B are already in mx-fp8, so both are loaded directly. B is
         // indexed by %k as well, since an fp8 element occupies a whole byte
         // and the K dimension is not packed.
-        %a = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a}: !xegpu.tensor_desc<32x512xf8E5M2> -> vector<32x512xf8E5M2>
-        %b = xegpu.load_nd %b_tdesc[%k, %n] {layout = #b}: !xegpu.tensor_desc<512x32xf8E5M2> -> vector<512x32xf8E5M2>
+        %a = xegpu.load_nd %a_tdesc[%m, %k] <{layout = #a}>: !xegpu.tensor_desc<32x512xf8E5M2> -> vector<32x512xf8E5M2>
+        %b = xegpu.load_nd %b_tdesc[%k, %n] <{layout = #b}>: !xegpu.tensor_desc<512x32xf8E5M2> -> vector<512x32xf8E5M2>
 
         // One scale per 32 elements along K, so a 512 wide K chunk needs 16
         // scales per row of A and 16 per column of B.
-        %scale_a = xegpu.load_nd %a_scale_tdesc[%m, %kscale] {layout = #a_scale}: !xegpu.tensor_desc<32x16xf8E8M0FNU> -> vector<32x16xf8E8M0FNU>
-        %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] {layout = #b_scale}: !xegpu.tensor_desc<16x32xf8E8M0FNU> -> vector<16x32xf8E8M0FNU>
+        %scale_a = xegpu.load_nd %a_scale_tdesc[%m, %kscale] <{layout = #a_scale}>: !xegpu.tensor_desc<32x16xf8E8M0FNU> -> vector<32x16xf8E8M0FNU>
+        %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] <{layout = #b_scale}>: !xegpu.tensor_desc<16x32xf8E8M0FNU> -> vector<16x32xf8E8M0FNU>
 
         %new_c_partial = xegpu.dpas_mx %a, %b, %c_partial scale_a = %scale_a scale_b = %scale_b
-              {layout_a = #a,
+              <{layout_a = #a,
                layout_b = #b,
                layout_cd = #c,
                layout_a_scale = #dpas_a_scale,
-               layout_b_scale = #dpas_b_scale}
+               layout_b_scale = #dpas_b_scale}>
             : (vector<32x512xf8E5M2>, vector<512x32xf8E5M2>,
                vector<32x32xf32>,
                vector<32x16xf8E8M0FNU>, vector<16x32xf8E8M0FNU>)
@@ -85,7 +85,7 @@ module @gemm attributes {gpu.container_module} {
       }
 
       // store_nd with offset
-      xegpu.store_nd %res#0, %cd_tdesc[%m, %n] {layout = #c} : vector<32x32xf32>, !xegpu.tensor_desc<32x32xf32, #c>
+      xegpu.store_nd %res#0, %cd_tdesc[%m, %n] <{layout = #c}> : vector<32x32xf32>, !xegpu.tensor_desc<32x32xf32, #c>
       gpu.return
     }
   }

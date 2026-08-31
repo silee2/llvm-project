@@ -53,12 +53,12 @@ module @gemm attributes {gpu.container_module} {
 
       // Load initial C
       %cd_tdesc = xegpu.create_nd_tdesc %arg4 : memref<256x256xf32> -> !xegpu.tensor_desc<32x32xf32, #c>
-      %c_init = xegpu.load_nd %cd_tdesc[%m, %n] {layout = #c}: !xegpu.tensor_desc<32x32xf32, #c> -> vector<32x32xf32>
+      %c_init = xegpu.load_nd %cd_tdesc[%m, %n] <{layout = #c}>: !xegpu.tensor_desc<32x32xf32, #c> -> vector<32x32xf32>
 
       %res:2 = scf.for %k = %c0 to %kbound step %kstep
         iter_args(%c_partial = %c_init, %kscale = %c0) -> (vector<32x32xf32>, index) {
         // -------- Load A (bf16) --------
-        %a_bf16 = xegpu.load_nd %a_tdesc[%m, %k] {layout = #a_ld}: !xegpu.tensor_desc<32x1024xbf16> -> vector<32x1024xbf16>
+        %a_bf16 = xegpu.load_nd %a_tdesc[%m, %k] <{layout = #a_ld}>: !xegpu.tensor_desc<32x1024xbf16> -> vector<32x1024xbf16>
 
         // -------- Quantize A: bf16 -> fp8 + f8E8M0 scale (block_size=32 along K) --------
         // 1) abs and reduce-max per block of 32 along K dim using vector ops.
@@ -101,15 +101,15 @@ module @gemm attributes {gpu.container_module} {
         // -------- Load B (mx-fp8) --------
         // An fp8 element is a whole byte, so B is loaded in its logical shape and
         // needs no unpacking. B is indexed by %k for the same reason.
-        %b = xegpu.load_nd %b_tdesc[%k, %n] {layout = #b}: !xegpu.tensor_desc<1024x32xf8E5M2> -> vector<1024x32xf8E5M2>
+        %b = xegpu.load_nd %b_tdesc[%k, %n] <{layout = #b}>: !xegpu.tensor_desc<1024x32xf8E5M2> -> vector<1024x32xf8E5M2>
 
-        %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] {layout = #b_scale}: !xegpu.tensor_desc<32x32xf8E8M0FNU> -> vector<32x32xf8E8M0FNU>
+        %scale_b = xegpu.load_nd %b_scale_tdesc[%kscale, %n] <{layout = #b_scale}>: !xegpu.tensor_desc<32x32xf8E8M0FNU> -> vector<32x32xf8E8M0FNU>
         %new_c_partial = xegpu.dpas_mx %a, %b, %c_partial scale_a = %a_scale scale_b = %scale_b
-              {layout_a = #a,
+              <{layout_a = #a,
                layout_b = #b,
                layout_cd = #c,
                layout_a_scale = #dpas_a_scale,
-               layout_b_scale = #dpas_b_scale}
+               layout_b_scale = #dpas_b_scale}>
             : (vector<32x1024xf8E5M2>, vector<1024x32xf8E5M2>,
                vector<32x32xf32>,
                vector<32x32xf8E8M0FNU>, vector<32x32xf8E8M0FNU>)
@@ -121,7 +121,7 @@ module @gemm attributes {gpu.container_module} {
       }
 
       // store_nd with offset
-      xegpu.store_nd %res#0, %cd_tdesc[%m, %n] {layout = #c} : vector<32x32xf32>, !xegpu.tensor_desc<32x32xf32, #c>
+      xegpu.store_nd %res#0, %cd_tdesc[%m, %n] <{layout = #c}> : vector<32x32xf32>, !xegpu.tensor_desc<32x32xf32, #c>
       gpu.return
     }
   }
