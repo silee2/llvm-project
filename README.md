@@ -14,6 +14,8 @@ first and edit).
 | `6-no-vector-width-legalization.md` | no vector width legalization before `convert-xegpu-to-xevm` | fixed |
 | `7-mixed-size-shuffle-scalarization.md` | mixed-size `vector.shuffle` scalarized; 70% of emitted LLVM IR | fixed |
 | `8-truncf-wider-than-one-conversion-group.md` | `arith.truncf` wider than one `xevm.truncf` group is not lowered | fixed |
+| `9-array-length-narrowing-subgroup-size-only.md` | array-length narrowing only targets the subgroup size, so `lane_data > 1` descriptors keep their wide FCD | open |
+| `10-wg-tests-stale-strict-properties.md` | WG integration tests do not parse since layout attributes became strict properties | open |
 
 Attached repros (all verified against the built `mlir-opt`):
 
@@ -54,8 +56,9 @@ All on <https://github.com/silee2/llvm-project>.
 |---|---|---|---|---|
 | `xevm-bitcast-shuffle` | `main` | [#215303](https://github.com/llvm/llvm-project/pull/215303) | adds the `xevm.bitcast_shuffle` op + LLVM lowering; pack and unpack only | — |
 | `xegpu-lane-shuffle-to-xevm` | `xevm-bitcast-shuffle` | [#215306](https://github.com/llvm/llvm-project/pull/215306) | `xegpu.lane_shuffle` → `xevm.bitcast_shuffle` | — |
-| `xegpu-convert-layout-broadcast-redistribute` | `main` | [#215645](https://github.com/llvm/llvm-project/pull/215645) | base pattern: distribute `convert_layout` redistributing broadcast data | — |
-| `xegpu-convert-layout-broadcast-divisor` | `xegpu-convert-layout-broadcast-redistribute` | [#217104](https://github.com/llvm/llvm-project/pull/217104) | generalizes the base pattern to non-equal divisors | #ISSUE-3 |
+| `xegpu-convert-layout-broadcast-redistribute` | `main` | [#215645](https://github.com/llvm/llvm-project/pull/215645) | distributes `convert_layout` redistributing broadcast data, including the non-equal-divisor case folded in from #217104 | #ISSUE-3 |
+| `xegpu-convert-layout-broadcast-divisor` | — | ~~[#217104](https://github.com/llvm/llvm-project/pull/217104)~~ | folded into #215645; PR closed, branch retired | — |
+| `xegpu-array-length-lane-data` | `main` | — | widened the FCD narrowing granularity to `lane_layout * lane_data`; superseded upstream, see #ISSUE-9 | — |
 | `xegpu-truncf-split-wide` | `main` | [#217130](https://github.com/llvm/llvm-project/pull/217130) | `TruncfToXeVMPattern` accepts multiples of 16 | #ISSUE-8 |
 | `xegpu-legalize-vector-width` | `main` | [#217131](https://github.com/llvm/llvm-project/pull/217131) | new `xegpu-legalize-vector-width` pass | #ISSUE-6 |
 | `xegpu-linearize-promote-shuffle` | `main` | [#217141](https://github.com/llvm/llvm-project/pull/217141) | run the existing shuffle-promotion patterns in `xegpu-vector-linearize` | #ISSUE-7 |
@@ -78,8 +81,7 @@ graph TD
     MAIN["main -- includes PR #210837, merged"]
     P215303["PR #215303 -- xevm-bitcast-shuffle: adds xevm.bitcast_shuffle, pack and unpack only"]
     P215306["PR #215306 -- xegpu-lane-shuffle-to-xevm"]
-    P215645["PR #215645 -- xegpu-convert-layout-broadcast-redistribute"]
-    DIV["PR #217104 -- xegpu-convert-layout-broadcast-divisor"]
+    P215645["PR #215645 -- xegpu-convert-layout-broadcast-redistribute, incl. the folded #217104"]
     T["PR #217130 -- xegpu-truncf-split-wide"]
     I8["#ISSUE-8 fixed"]
     W["PR #217131 -- xegpu-legalize-vector-width"]
@@ -92,8 +94,7 @@ graph TD
 
     MAIN -.-> P215306
     P215303 --> P215306
-    P215645 --> DIV
-    DIV --> I3
+    P215645 --> I3
     I4 -.-> I3
     I3 --> I6
     W --> I6
@@ -121,11 +122,10 @@ first. Dashed arrows are logical dependencies between changes that do not sit on
   is that the packed side is a single value of one of the supported scalar types, which bounds the
   vector side at 64 bits in total. **PR #215306** is committed directly on top of #215303, so that
   has to land first.
-* **PR #217104** generalizes the pattern added by **PR #215645** to non-equal divisors, deriving the
-  extract index as `stride * ((t / divisor) % modulus) + offset` so that target layouts whose
-  distributed dimension is not the fastest varying one are also covered. It is committed on top of
-  #215645, so #215645 has to land first; note that #217104 therefore carries both commits, and will
-  reduce to one once #215645 lands.
+* **PR #215645** also carries what was **PR #217104**: the generalization to non-equal divisors,
+  deriving the extract index as `stride * ((slot / slotStride) % extent) + offset` so that target
+  layouts whose distributed dimension is not the fastest varying one are covered too. #217104 has
+  been folded into #215645 and closed, so there is one PR here rather than a stack of two.
 * #ISSUE-4 is the *root cause* of #ISSUE-3: fixing it removes the need for the conversion that
   #ISSUE-3 adds a lowering for. The two are complementary, not exclusive, which is why the arrow is
   dashed rather than a prerequisite.
@@ -137,8 +137,9 @@ first. Dashed arrows are logical dependencies between changes that do not sit on
 * #ISSUE-7 is fully independent and can land on its own.
 * #ISSUE-2 and #ISSUE-5 are independent of everything above.
 
-Every change is now upstream as a PR. Of the eight involved, **#210837 is merged**; #215303,
-#215306, #215645, #217104, #217130, #217131 and #217141 are open.
+Every change is now upstream as a PR. **#210837, #215303 and #215306 are merged**; #215645 (which
+now includes the folded #217104), #217130, #217131 and #217141 are open. Drafts 9 and 10 have no PR
+yet.
 
 ## Measurement environment
 

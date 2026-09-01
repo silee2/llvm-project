@@ -3,8 +3,7 @@
 **Labels:** `mlir`, `mlir:gpu`
 
 **Status:** fixed.
-**Fixed by:** [PR #217104](https://github.com/llvm/llvm-project/pull/217104), branch `xegpu-convert-layout-broadcast-divisor`, on top of `xegpu-convert-layout-broadcast-redistribute`.
-**Depends on:** `xegpu-convert-layout-broadcast-redistribute`, the base pattern it generalizes, which is upstream as [PR #215645](https://github.com/llvm/llvm-project/pull/215645) and must land first.
+**Fixed by:** [PR #215645](https://github.com/llvm/llvm-project/pull/215645), branch `xegpu-convert-layout-broadcast-redistribute`. The generalization to non-equal divisors that was PR #217104 (branch `xegpu-convert-layout-broadcast-divisor`) has been folded into #215645, and #217104 is closed.
 **Superseded by:** #ISSUE-4 would remove the need for this conversion entirely; the two are complementary, not exclusive.
 **Validated:** the redistribution is numerically correct -- `simple_mxfp_gemm_quantizeA_F4.mlir` XPASSes with 0 mismatching elements. See #ISSUE-1.
 
@@ -98,3 +97,54 @@ shape of code as the existing "broadcast to all lanes" test.
 * The sibling conversion in the same kernel
   (`slice<[8,1,2],[4,1,1],order=[0,2,1],dims=[0]>` → `layout<[8,1],[1,1]>` on
   `vector<8x2xf8E8M0FNU>`) *is* handled by the broadcast-redistribute work.
+
+## Known limits of the implementation
+
+Recorded from the review of #215645, in rough order of how likely they are to matter.
+
+**One shuffle per moved element; no packing.** `gpu.shuffle` exchanges a whole 32-bit lane word,
+but the lowering moves one element per shuffle, so an `f8E8M0FNU` element uses 8 of 32 bits. A
+fragment with four bytes to move emits four shuffles where one would do. The sibling pattern in
+the same file, `shuffleDataAsLaneLayoutChange`, already packs into `vector<Nxi32>` and issues
+`vectorBitWidth / 32` shuffles.
+
+This cannot be delegated to `xegpu.lane_shuffle` or `xevm.bitcast_shuffle`, even though both do
+pack sub-word data: they are bit-preserving bijections (`AllTypesMatch<["source", "result"]>` on
+the former, "total number of bits of `res` must equal the total number of bits of `src`" on the
+latter), whereas this conversion is a size-changing gather from replicated data -- 16 lanes x 8
+elements in, 16 x 2 out. Packing would have to happen inside the pattern: group element sources
+that share a donor and whose fragment indices form a contiguous, aligned run, and move a word.
+
+None of the three tests would benefit. In the partial case a lane needs exactly one element from
+the other donor group, so the current form costs 1 shuffle where broadcasting the donor's whole
+8-byte fragment would cost 2; the fully broadcast case emits no shuffle at all; and the
+sliced-target case reads indices strided by 2, which no run covers. Choosing between the
+strategies needs a cost model the pass does not have.
+
+**Non-unit `lane_data` is rejected.** `isBroadcastRedistribution` requires the two layouts to
+agree on `lane_data`, but `computeOwnedCoords` then rejects anything that is not all-ones, because
+`computeStaticDistributedCoords` gives distribution-unit *starts* rather than every element. The
+unit would have to be expanded, which is what the file-static `expandBlockCoords` in
+`XeGPUDialect.cpp` does for layout comparison; it is not exposed in a header.
+
+**Conversions that differ in both `lane_layout` and `lane_data` are handled by nothing.** The
+repack path requires equal effective `lane_layout`, this pattern requires equal effective
+`lane_data`, so a conversion differing in both falls through to
+`lowering incompatible convert_layout not yet supported`. Since a `lane_data`-only repack is free
+in hardware -- it lowers to `xegpu.lane_shuffle` -- the natural handling is composition:
+redistribute to the target `lane_layout` keeping the input's `lane_data`, then one `lane_shuffle`.
+No kernel in hand produces such a conversion, so this is speculative until one does.
+
+**Lanes outside the target's active set may hold stale elements.** Dropping the shuffle when the
+donor is the lane itself is only sound because nothing reads the lanes past `numActiveLanes`. The
+emitted extract is uniform, so those lanes evaluate it against their own fragment and can land on
+a different element. The first revision of the pattern shuffled unconditionally, which also
+repaired them.
+
+**The `needsShuffle` predicate cannot fire.** With the range narrowed to the active lanes it is
+tautological: `needed[slot]` is *defined* as the index of the wanted element in the fragment of
+lane `slot + delta`, so at `delta == 0` the check
+`inputOwned[slot][index->at(slot)] == targetOwned[slot][pos]` holds by construction, and the fit
+has already verified `index->at(slot) == needed[slot]`. So `needsShuffle` reduces to
+`donorDelta != 0`. Either simplify it to that, or restore the full-subgroup range -- which is the
+same decision as the previous point.

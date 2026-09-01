@@ -240,5 +240,5 @@ the backend outcome, it only makes the failure much easier to see in a 25k-line 
 ## Measurement environment
 
 `main` at `6523442d2efe`, which includes the merged PR #210837, plus the `#ISSUE-3` fix
-(PR #217104), PR #215645, and the `xegpu.lane_shuffle` -> XeVM lowering of PRs #215306 and #215303 (branch
+(PR #215645, which now includes the folded #217104) and the `xegpu.lane_shuffle` -> XeVM lowering of PRs #215306 and #215303 (branch
 `xegpu-mxfp-combined`). `mlir-opt` Release + `BUILD_SHARED_LIBS=ON`.

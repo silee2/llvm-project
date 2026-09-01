@@ -68,7 +68,8 @@ PR #215645 and the `xegpu.lane_shuffle` → XeVM lowering (PRs #215306 and #2153
 three rows as well; `mlir/test/Dialect/XeGPU`,
 `mlir/test/Conversion/XeGPUToXeVM` and `mlir/test/Conversion/XeVMToLLVM` pass (47/47) on it. The
 fourth row, #ISSUE-3, is the remaining XeGPU-layer blocker and is now fixed by
-[PR #217104](https://github.com/llvm/llvm-project/pull/217104), on branch `xegpu-convert-layout-broadcast-divisor`.
+[PR #215645](https://github.com/llvm/llvm-project/pull/215645), on branch
+`xegpu-convert-layout-broadcast-redistribute`.
 
 Behind it sit two further problems outside the XeGPU layer, invisible until #ISSUE-3 was fixed:
 #ISSUE-6 and #ISSUE-7. See "Current status".
@@ -100,7 +101,7 @@ The path there, in order, since each problem was only visible once the previous 
 
 | # | symptom | resolution |
 |---|---|---|
-| #ISSUE-3 | `convert_layout` not lowered at sg-to-lane | fixed (PR #217104, `xegpu-convert-layout-broadcast-divisor`) |
+| #ISSUE-3 | `convert_layout` not lowered at sg-to-lane | fixed (PR #215645, `xegpu-convert-layout-broadcast-redistribute`) |
 | #ISSUE-8 | `arith.truncf : vector<32xbf16> to vector<32xf4E2M1FN>` unconverted | fixed (PR #217130, `xegpu-truncf-split-wide`) |
 | #ISSUE-6 | `LLVM ERROR: unable to legalize G_FPEXT <32 x s16> -> <32 x s32>` | fixed (PR #217131, `xegpu-legalize-vector-width`) |
 | #ISSUE-6 | `LLVM ERROR: incompatible result and operand types in a bitcast` (sub-byte `i4` movement introduced by the first attempt at the above) | fixed (sub-byte exemption) |
@@ -115,8 +116,7 @@ graph TD
     MAIN["main -- includes PR #210837, merged"]
     P215303["PR #215303 -- xevm-bitcast-shuffle: adds xevm.bitcast_shuffle, pack and unpack only"]
     P215306["PR #215306 -- xegpu-lane-shuffle-to-xevm"]
-    P215645["PR #215645 -- xegpu-convert-layout-broadcast-redistribute"]
-    DIV["PR #217104 -- xegpu-convert-layout-broadcast-divisor"]
+    P215645["PR #215645 -- xegpu-convert-layout-broadcast-redistribute, incl. the folded #217104"]
     T["PR #217130 -- xegpu-truncf-split-wide"]
     I8["#ISSUE-8 fixed"]
     W["PR #217131 -- xegpu-legalize-vector-width"]
@@ -129,8 +129,7 @@ graph TD
 
     MAIN -.-> P215306
     P215303 --> P215306
-    P215645 --> DIV
-    DIV --> I3
+    P215645 --> I3
     I4 -.-> I3
     I3 --> I6
     W --> I6
@@ -158,11 +157,10 @@ first. Dashed arrows are logical dependencies between changes that do not sit on
   is that the packed side is a single value of one of the supported scalar types, which bounds the
   vector side at 64 bits in total. **PR #215306** is committed directly on top of #215303, so that
   has to land first.
-* **PR #217104** generalizes the pattern added by **PR #215645** to non-equal divisors, deriving the
-  extract index as `stride * ((t / divisor) % modulus) + offset` so that target layouts whose
-  distributed dimension is not the fastest varying one are also covered. It is committed on top of
-  #215645, so #215645 has to land first; note that #217104 therefore carries both commits, and will
-  reduce to one once #215645 lands.
+* **PR #215645** also carries what was **PR #217104**: the generalization to non-equal divisors,
+  deriving the extract index as `stride * ((slot / slotStride) % extent) + offset` so that target
+  layouts whose distributed dimension is not the fastest varying one are covered too. #217104 has
+  been folded into #215645 and closed.
 * #ISSUE-4 is the *root cause* of #ISSUE-3: fixing it removes the need for the conversion that
   #ISSUE-3 adds a lowering for. The two are complementary, not exclusive, which is why the arrow is
   dashed rather than a prerequisite.
@@ -174,8 +172,8 @@ first. Dashed arrows are logical dependencies between changes that do not sit on
 * #ISSUE-7 is fully independent and can land on its own.
 * #ISSUE-2 and #ISSUE-5 are independent of everything above.
 
-Of the seven upstream PRs involved, **#210837 is merged**; #215303, #215306, #215645, #217104,
-#217130 and #217131 are still open. One fix written for this work,
+Of the seven upstream PRs involved, **#210837, #215303 and #215306 are merged**; #215645 (with
+#217104 folded into it), #217130 and #217131 are still open. One fix written for this work,
 `xegpu-lower-mixed-shuffle`, is not a PR yet.
 
 **The kernel produces numerically correct results.** See "Validation" below. `XFAIL: *` is

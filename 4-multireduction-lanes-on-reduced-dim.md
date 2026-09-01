@@ -275,6 +275,26 @@ computation rather than to the matrix multiplication.
 * `#ISSUE-3` and this issue are complementary, not exclusive: sg-to-lane should still be able
   to lower the conversion when it is genuinely needed.
 
+## Why the cost class matters
+
+A `lane_data`-only layout mismatch is free in hardware: it lowers to `xegpu.lane_shuffle`, whose
+pack/unpack forms are a register reinterpretation rather than data movement. A replicated →
+distributed mismatch is not, and cannot be made so, because it needs a *lane-dependent* selection
+-- lane `i` must end up with element `i` -- which no fixed permutation can supply. It costs one
+dynamic `vector.extract` per element, plus a `gpu.shuffle` per element that is not in the lane's
+own fragment.
+
+So the layout choices in this file partition into a free class and an expensive one, and this
+issue is about landing in the free one. Optimizing the lowering of #ISSUE-3 chases a constant
+factor on code that ideally is not emitted at all.
+
+One clarification, since it is easy to overstate: a reduction result layout is always a
+`SliceAttr` -- `setupMultiReductionResultLayout` returns one by construction -- but that is not
+itself the problem. The result is only *replicated* when the sliced dims carry more than one lane.
+With `lane_layout = [16, 1, 1]` and a reduction over dim 2, the result is
+`slice<layout<[16, 1, 1]>, dims = [2]>`, whose sliced dim holds a single lane: distributed over M,
+nothing replicated, no conversion needed.
+
 ## Note: this cannot be worked around from the test
 
 Annotating the source with an M-distributed layout and inserting an explicit
