@@ -7,8 +7,9 @@ Source kernels:
 Instructions below are verbatim from the IR immediately before `xegpu-sg-to-lane-distribute`
 (`--mlir-print-ir-before=xegpu-sg-to-lane-distribute`). Subgroup size is 16.
 
-In the generated sequences, `%src` is the distributed operand, i.e. `adaptor.getSource()`,
-and the result must have the distributed `target_layout` type.
+In the generated sequences, `%src` is the distributed operand, i.e. `adaptor.getSource()`
+cast to the distributed `input_layout` type, and the result must have the distributed
+`target_layout` type.
 
 ---
 
@@ -47,14 +48,20 @@ with `layout_a_scale = #xegpu.layout<lane_layout = [8, 1], lane_data = [1, 1]>`
 ### Sequence
 
 ```mlir
+%flat = vector.shape_cast %src : vector<8x1xf8E8M0FNU> to vector<8xf8E8M0FNU>
 %lane = gpu.lane_id
 %c8   = arith.constant 8 : index
 %row  = arith.remui %lane, %c8 : index
-%elem = vector.extract %src[%row, 0] : f8E8M0FNU from vector<8x1xf8E8M0FNU>
+%elem = vector.extract %flat[%row] : f8E8M0FNU from vector<8xf8E8M0FNU>
 %res  = vector.from_elements %elem : vector<1x1xf8E8M0FNU>
 ```
 
 `8` in `%c8` is `targetLaneLayout[0]`, which must equal `shape[0]`.
+
+The `shape_cast` to rank 1 is required, not cosmetic: `xegpu-vector-linearize`
+bails out on `vector.extract` with a dynamic position, so the rank-2 form
+drafted first fails to legalize later in the pipeline. See "Settled since the
+first draft" below.
 
 ---
 
@@ -150,15 +157,18 @@ Lane `l` holds column `l / 8`, all 8 rows. Target lane `i` needs `[i, 0]` and `[
 ### Sequence
 
 ```mlir
+%flat    = vector.shape_cast %src : vector<8x1xf8E8M0FNU> to vector<8xf8E8M0FNU>
 %lane    = gpu.lane_id
 %c8      = arith.constant 8 : index
 %row     = arith.remui %lane, %c8 : index
-%own     = vector.extract %src[%row, 0] : f8E8M0FNU from vector<8x1xf8E8M0FNU>
+%own     = vector.extract %flat[%row] : f8E8M0FNU from vector<8xf8E8M0FNU>
 %c8_i32  = arith.constant 8 : i32
 %c16_i32 = arith.constant 16 : i32
 %partner, %valid = gpu.shuffle xor %own, %c8_i32, %c16_i32 : f8E8M0FNU
 %res     = vector.from_elements %own, %partner : vector<1x2xf8E8M0FNU>
 ```
+
+The `shape_cast` to rank 1 is required for the same reason as in C/F8.
 
 `lane_id ^ 8` flips only bit 3, so the partner holds the same row in the other column. For
 lanes 0..7 `%own` is column 0 and `%partner` is column 1. Lanes 8..15 get them reversed, which
@@ -174,9 +184,9 @@ is unused because `target_layout` `lane_layout = [8, 1]` occupies only 8 lanes.
 
 | | input effective `lane_layout` | target effective `lane_layout` | distributed input | distributed target | sequence |
 |---|---|---|---|---|---|
-| C/F8 | `[1, 1]` | `[8, 1]` | `vector<8x1>` | `vector<1x1>` | 1 extract |
-| B/F4 | `[1, 1]` | `[1, 2]` | `vector<8x2>` | `vector<8x1>` | 1 deinterleave + 1 select |
-| C/F4 | `[1, 2]` | `[8, 1]` | `vector<8x1>` | `vector<1x2>` | 1 extract + 1 shuffle |
+| C/F8 | `[1, 1]` | `[8, 1]` | `vector<8x1>` | `vector<1x1>` | 1 shape_cast + 1 extract |
+| B/F4 | `[1, 1]` | `[1, 2]` | `vector<8x2>` | `vector<8x1>` | 1 shape_cast + 1 deinterleave + 1 select |
+| C/F4 | `[1, 2]` | `[8, 1]` | `vector<8x1>` | `vector<1x2>` | 1 shape_cast + 1 extract + 1 shuffle |
 
 The three input/target effective `lane_layout` pairs are disjoint.
 
@@ -184,7 +194,7 @@ The three input/target effective `lane_layout` pairs are disjoint.
 
 Verbatim from tool output:
 - all three `xegpu.convert_layout` instructions, their producers and consumers
-- all three fail `xegpu-sg-to-lane-distribute` today
+- all three failed `xegpu-sg-to-lane-distribute` before the patterns below existed
 - `vector.deinterleave` lowers to two `llvm.shufflevector` with constant masks
   (`ConvertVectorToLLVM.cpp:1897`), rank-1 only
 
@@ -195,11 +205,38 @@ Compiled end-to-end to `gpu.binary` for `chip=cri`:
 - the C/F4 op triple `vector.extract` (dynamic index) + `gpu.shuffle xor` + `vector.from_elements`
   on `f8E8M0FNU`, producing `llvm.extractelement`, `@_Z21sub_group_shuffle_xorcj`, and two
   `llvm.insertelement`. Tested with a rank-1 `vector<8xf8E8M0FNU>` source, not the rank-2
-  `vector<8x1xf8E8M0FNU>` shown above.
+  `vector<8x1xf8E8M0FNU>` originally drafted.
+
+Implemented as three separate `OpConversionPattern<xegpu::ConvertLayoutOp>` in
+`XeGPUSgToLaneDistribute.cpp`, one per case, gated on the exact effective
+`lane_layout` pair of that case:
+- C/F8: `SgToLaneConvertLayoutBroadcastExtract`
+- C/F4: `SgToLaneConvertLayoutPartialBroadcastExtractShuffle`
+- B/F4: `SgToLaneConvertLayoutDeinterleaveSelect`
+
+With those in place:
+- all three instructions legalize under `xegpu-sg-to-lane-distribute`
+- the emitted sequences survive the rest of `--gpu-lower-to-xevm-pipeline`,
+  including `xegpu-vector-linearize` and `XeGPUToXeVM`
+- `simple_mxfp_gemm_quantizeA_F8.mlir` serializes to a `gpu.binary` for
+  `chip=cri`
+- `simple_mxfp_gemm_quantizeA_F4.mlir` gets past `xegpu-sg-to-lane-distribute`
+  and now stops later, on the `arith.truncf` to fp4 that `arith.scaling_truncf`
+  expands to, which has no LLVM translation. Known issue, addressed by separate
+  PRs.
+
+Settled since the first draft:
+- the rank-2 `vector.extract` with mixed dynamic and static indices originally
+  drafted for C/F8 and C/F4 parses and verifies, but `xegpu-vector-linearize`
+  rejects it: `LinearizeVectorExtract` bails out on dynamic positions and rank-2
+  vector ops are illegal there, so the op fails to legalize. Both sequences now
+  `vector.shape_cast` the distributed source to rank 1 first, which is also the
+  form that was already known to compile to a device binary.
+- `vector.deinterleave` in B/F4 does need its explicit `shape_cast`, being
+  rank-1 only.
 
 Not verified:
-- the exact spelling of all three sequences, in particular whether `vector.extract` with mixed
-  dynamic and static indices is preferred over a `vector.shape_cast` to rank 1 first, and whether
-  `vector.deinterleave` needs the explicit `shape_cast` or whether `xegpu-vector-linearize`
-  handles it later in the pipeline
-- that the sequences produce correct results at runtime; none has been executed
+- that the sequences produce correct results at runtime; none has been executed.
+  `chip=cri` has no silicon on this host, so the Level Zero path cannot run these
+  kernels and both integration tests are `XFAIL: *`. Runtime validation needs the
+  hardware simulator.
