@@ -319,10 +319,13 @@ module @gemm attributes {gpu.container_module} {
     %C_cast = memref.cast %C_res : memref<256x256xf32> to memref<*xf32>
     %C_ref_cast = memref.cast %C_ref : memref<256x256xf32> to memref<*xf32>
     %diff = call @verifyMemRefF32(%C_cast, %C_ref_cast) : (memref<*xf32>, memref<*xf32>) -> i64
+    %prefix = llvm.mlir.addressof @mismatches_str : !llvm.ptr
+    llvm.call @printString(%prefix) : (!llvm.ptr) -> ()
     call @printI64(%diff) : (i64) -> ()
+    call @printNewline() : () -> ()
     //call @printMemrefF32(%C_cast) : (memref<*xf32>) -> ()
 
-    // CHECK: 0
+    // CHECK: {{^mismatches: 0$}}
     memref.dealloc %A_f32 : memref<256x4096xf32>
     memref.dealloc %B_f32 : memref<4096x256xf32>
     memref.dealloc %lut : memref<8xf32>
@@ -338,6 +341,14 @@ module @gemm attributes {gpu.container_module} {
   }
   func.func private @printMemrefF32(memref<*xf32>) attributes {llvm.emit_c_interface}
   func.func private @printI64(i64)
+  func.func private @printNewline()
+
+  // Print the mismatch count as "mismatches: <n>" rather than bare, so the
+  // check cannot be satisfied by an unrelated 0: the runtime is free to write
+  // diagnostics to stdout, and a bare "0" check matches a 0 anywhere in them,
+  // including inside a larger number.
+  llvm.mlir.global internal constant @mismatches_str("mismatches: \00")
+  llvm.func @printString(!llvm.ptr)
   func.func private @verifyMemRefF32(memref<*xf32>, memref<*xf32>) -> i64 attributes {llvm.emit_c_interface}
 
   // Plain host GEMM, used to build the expected result.
