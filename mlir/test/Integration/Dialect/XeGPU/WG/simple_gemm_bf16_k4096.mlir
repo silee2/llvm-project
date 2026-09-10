@@ -13,7 +13,8 @@
 //   - problem size            M = 256, N = 256, K = 4096, C is f32
 //   - dispatch                blocks (8, 8, 1), threads (64, 1, 1)
 //   - workgroup tile of C     32x32, sg_layout = [2, 2], sg_data = [16, 16]
-//   - reference result        A and B are all ones, so C = K = 4096
+//   - input set               the shared one built in @main below
+//   - reference result        host f32 GEMM over the same operand values
 //
 // Deliberately different: the K step is 256 rather than 1024. The mxfp kernel
 // can afford a 1024-deep K step because fp4 is 4 bits, giving an 8 KB per
