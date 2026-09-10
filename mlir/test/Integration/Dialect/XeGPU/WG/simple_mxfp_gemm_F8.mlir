@@ -1,10 +1,10 @@
-// RUN: mlir-opt %s --gpu-lower-to-xevm-pipeline="xegpu-op-level=workgroup zebin-chip=cri"
-// RUN-DISABLED: | mlir-runner \
-// RUN-DISABLED:   --shared-libs=%mlir_levelzero_runtime \
-// RUN-DISABLED:   --shared-libs=%mlir_runner_utils \
-// RUN-DISABLED:   --shared-libs=%mlir_c_runner_utils \
-// RUN-DISABLED:   --entry-point-result=void \
-// RUN-DISABLED: | FileCheck %s
+// RUN: mlir-opt %s --gpu-lower-to-xevm-pipeline="xegpu-op-level=workgroup zebin-chip=cri" \
+// RUN: | mlir-runner \
+// RUN:   --shared-libs=%mlir_levelzero_runtime \
+// RUN:   --shared-libs=%mlir_runner_utils \
+// RUN:   --shared-libs=%mlir_c_runner_utils \
+// RUN:   --entry-point-result=void \
+// RUN: | FileCheck %s
 
 // mx-fp8 variant of simple_mxfp_gemm.mlir: A and B are pre-quantized to
 // f8E5M2 with one f8E8M0 scale per 32 elements along K, the same block size
