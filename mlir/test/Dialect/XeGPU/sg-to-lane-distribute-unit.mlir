@@ -1310,9 +1310,14 @@ gpu.module @xevm_module {
 // CHECK:             %[[ROWS:.*]] = arith.constant 16 : index
 // CHECK:             %[[BASE:.*]] = arith.muli %[[SGID]], %[[ROWS]] : index
 // CHECK:             gpu.lane_id
+// The input layout gives each lane one column, 16 separate elements of the
+// row-major scratch, so the write side stays one access per element.
 // CHECK-COUNT-16:    xegpu.store_matrix %{{.*}}, %[[MD]]{{\[}}%{{.*}}, %{{.*}}] : vector<1x1xf32>, !xegpu.mem_desc<64x16xf32>, index, index
 // CHECK:             xegpu.fence memory_kind = slm, fence_scope = workgroup
-// CHECK-COUNT-16:    xegpu.load_matrix %[[MD]]{{\[}}%{{.*}}, %{{.*}}] : !xegpu.mem_desc<64x16xf32>, index, index -> vector<1x1xf32>
+// The target layout gives each lane a whole row, which is contiguous, so the
+// read side is a single access.
+// CHECK:             xegpu.load_matrix %[[MD]]{{\[}}%{{.*}}, %{{.*}}] : !xegpu.mem_desc<64x16xf32>, index, index -> vector<1x16xf32>
+// CHECK-NOT:         xegpu.load_matrix
 // CHECK:             builtin.unrealized_conversion_cast %{{.*}} : vector<1x16xf32> to vector<16x16xf32>
 gpu.func @convert_layout_via_slm_lane_layout() kernel attributes {known_block_size = array<i32: 64, 1, 1>} {
   %src = "test.some_op"() : () -> vector<16x16xf32>
@@ -1346,6 +1351,39 @@ gpu.func @convert_layout_via_slm_lane_data() kernel attributes {known_block_size
       target_layout = #xegpu.layout<lane_layout = [1, 2, 8], lane_data = [1, 1, 1]>
     }> : vector<1x2x32xbf16>
   "test.some_use"(%cvt) : (vector<1x2x32xbf16>) -> ()
+  gpu.return
+}
+}
+
+// -----
+// The mx-fp scale handoff: the amax leaves the scale spread along M, one row
+// per lane, and the broadcast that feeds `arith.scaling_truncf` wants all of M
+// in every lane with the K-blocks split across two lane groups.
+//
+// Neither side can merge under the default row-major scratch: the write side
+// owns 2 adjacent K-blocks but M is the outer dimension, and the read side owns
+// a 16-long run along M which is strided there. Giving the scratch
+// `stride = [1, 32]` puts M at stride 1, so the read side's run becomes one
+// access: 16 + 2 goes to 1 + 2. The write side is the strided one then, which
+// is the better trade, 16 accesses saved against 1.
+gpu.module @xevm_module {
+// CHECK-LABEL:     gpu.func @convert_layout_via_slm_strided_scratch
+// CHECK-NOT:         xegpu.convert_layout
+// CHECK:             %[[SLM:.*]] = memref.alloca() : memref<128xi8, 3>
+// CHECK:             %[[MD:.*]] = xegpu.create_mem_desc %[[SLM]] : memref<128xi8, 3> -> !xegpu.mem_desc<32x2xbf16, #xegpu.mem_layout<stride = [1, 32]>>
+// CHECK-COUNT-2:     xegpu.store_matrix %{{.*}}, %[[MD]]{{\[}}%{{.*}}, %{{.*}}] : vector<1x1xbf16>, !xegpu.mem_desc<32x2xbf16, #xegpu.mem_layout<stride = [1, 32]>>, index, index
+// CHECK-NOT:         xegpu.store_matrix
+// CHECK:             xegpu.fence memory_kind = slm, fence_scope = workgroup
+// CHECK:             xegpu.load_matrix %[[MD]]{{\[}}%{{.*}}, %{{.*}}] : !xegpu.mem_desc<32x2xbf16, #xegpu.mem_layout<stride = [1, 32]>>, index, index -> vector<16x1xbf16>
+// CHECK-NOT:         xegpu.load_matrix
+gpu.func @convert_layout_via_slm_strided_scratch() kernel attributes {known_block_size = array<i32: 32, 1, 1>} {
+  %src = "test.some_op"() : () -> vector<16x2xbf16>
+  %cvt = xegpu.convert_layout %src
+    <{
+      input_layout = #xegpu.layout<lane_layout = [16, 1], lane_data = [1, 1]>,
+      target_layout = #xegpu.layout<lane_layout = [1, 2], lane_data = [1, 1]>
+    }> : vector<16x2xbf16>
+  "test.some_use"(%cvt) : (vector<16x2xbf16>) -> ()
   gpu.return
 }
 }

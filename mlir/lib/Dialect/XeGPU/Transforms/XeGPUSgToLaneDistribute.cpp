@@ -1930,21 +1930,74 @@ struct LaneFragmentPiece {
   SmallVector<int64_t> sizes;
 };
 
-static LaneFragmentPiece getLaneFragmentPiece(int64_t unit,
-                                              ArrayRef<int64_t> shape,
-                                              ArrayRef<int64_t> laneLayout,
-                                              ArrayRef<int64_t> laneData) {
+/// How many distribution units a lane's fragment is split into along each
+/// dimension; `computeDistributedCoords` enumerates them row major over this.
+static SmallVector<int64_t> getLaneFragmentUnits(ArrayRef<int64_t> shape,
+                                                ArrayRef<int64_t> laneLayout,
+                                                ArrayRef<int64_t> laneData) {
   int64_t rank = shape.size();
   SmallVector<int64_t> units(rank);
   for (int64_t d = 0; d < rank; ++d)
     units[d] = shape[d] / std::min(shape[d], laneLayout[d] * laneData[d]);
+  return units;
+}
+
+/// Whether a lane's fragment covers `dim` as one unbroken run *and* that run is
+/// a contiguous payload once `dim` is the scratch's unit-stride dimension, so
+/// that all of the lane's units along `dim` can be moved by a single access.
+///
+/// Two conditions. The lane has to own the whole extent of `dim`: with more than
+/// one lane on it the pieces are interleaved with the other lanes' and one
+/// access would take theirs too. And every *other* dimension has to contribute a
+/// single element, because the merged piece spans `dim` while keeping
+/// `lane_data` on the rest - so a non-unit `lane_data` elsewhere would make the
+/// payload a 2D block rather than a run, which is not one access and, on a
+/// compiler without llvm/llvm-project#228638, lowers as a contiguous access and
+/// silently reads the wrong elements.
+static bool isLaneFragmentRunAlongDim(int64_t dim,
+                                      ArrayRef<int64_t> laneLayout,
+                                      ArrayRef<int64_t> laneData) {
+  if (laneLayout[dim] != 1)
+    return false;
+  for (auto [d, data] : llvm::enumerate(laneData))
+    if (static_cast<int64_t>(d) != dim && data != 1)
+      return false;
+  return true;
+}
+
+/// The piece of a lane's fragment that distribution unit `unit` moves.
+///
+/// Without `mergeDim` that is one `lane_data`-sized piece per unit. With it,
+/// the units along `mergeDim` are moved by a single access spanning the whole
+/// dimension, so only the unit at coordinate 0 along `mergeDim` carries a piece
+/// and the rest return `std::nullopt`. `mergeDim` must satisfy
+/// `isLaneFragmentRunAlongDim` and be the scratch's unit-stride dimension.
+static std::optional<LaneFragmentPiece>
+getLaneFragmentPiece(int64_t unit, ArrayRef<int64_t> shape,
+                     ArrayRef<int64_t> laneLayout, ArrayRef<int64_t> laneData,
+                     int64_t mergeDim = -1) {
+  int64_t rank = shape.size();
+  SmallVector<int64_t> units = getLaneFragmentUnits(shape, laneLayout, laneData);
   SmallVector<int64_t> unitCoords = delinearize(unit, computeStrides(units));
+  if (mergeDim >= 0 && unitCoords[mergeDim] != 0)
+    return std::nullopt;
   LaneFragmentPiece piece;
   for (int64_t d = 0; d < rank; ++d) {
-    piece.offsets.push_back(unitCoords[d] * laneData[d]);
-    piece.sizes.push_back(laneData[d]);
+    bool merged = d == mergeDim;
+    piece.offsets.push_back(merged ? 0 : unitCoords[d] * laneData[d]);
+    piece.sizes.push_back(merged ? units[d] * laneData[d] : laneData[d]);
   }
   return piece;
+}
+
+/// How many accesses a side of the round-trip needs: one per distribution unit,
+/// except that the units along `mergeDim` collapse into one.
+static int64_t countLaneFragmentAccesses(ArrayRef<int64_t> units,
+                                         int64_t mergeDim) {
+  int64_t accesses = 1;
+  for (auto [dim, unitCount] : llvm::enumerate(units))
+    accesses *= static_cast<int64_t>(dim) == mergeDim ? 1 : unitCount;
+  return accesses;
 }
 
 /// Last-resort lowering for a `convert_layout` that none of the patterns above
@@ -2013,6 +2066,14 @@ struct SgToLaneConvertLayoutViaSLM
 
     Location loc = op.getLoc();
 
+    SmallVector<int64_t> inputLaneLayout =
+        inputLayout.getEffectiveLaneLayoutAsInt();
+    SmallVector<int64_t> inputLaneData = inputLayout.getEffectiveLaneDataAsInt();
+    SmallVector<int64_t> targetLaneLayout =
+        targetLayout.getEffectiveLaneLayoutAsInt();
+    SmallVector<int64_t> targetLaneData =
+        targetLayout.getEffectiveLaneDataAsInt();
+
     // One tile per subgroup, stacked along the outermost dimension.
     SmallVector<int64_t> slmShape(sgShape);
     slmShape[0] *= *numSubgroups;
@@ -2020,10 +2081,86 @@ struct SgToLaneConvertLayoutViaSLM
         computeProduct(slmShape) * elemTy.getIntOrFloatBitWidth() / 8;
     auto slmTy = MemRefType::get({slmBytes}, rewriter.getI8Type(), {}, 3);
     Value slm = memref::AllocaOp::create(rewriter, loc, slmTy);
+
+    // Choose the scratch's unit-stride dimension, and with it which side of the
+    // round-trip moves its fragment one run at a time instead of one
+    // `lane_data` piece at a time.
+    //
+    // A side can merge its units along a dimension only when the lane owns that
+    // whole extent and the dimension is the unit-stride one, since an access
+    // moves consecutive addresses. The scratch is private to this conversion,
+    // so its layout is free -- but both sides share it, so this is one choice.
+    // Score every candidate by the total accesses it leaves and take the best;
+    // the default row-major layout is among the candidates, so a conversion
+    // that gains nothing keeps exactly the code it had.
+    //
+    // The two sides generally want opposite answers. For the mx-fp scale
+    // handoff the write side holds one M row and both K-blocks while the read
+    // side holds all M rows of one K-block, so M wins: 16 accesses become 1,
+    // against 2 becoming 1 the other way.
+    SmallVector<int64_t> storeUnits =
+        getLaneFragmentUnits(sgShape, inputLaneLayout, inputLaneData);
+    SmallVector<int64_t> loadUnits =
+        getLaneFragmentUnits(sgShape, targetLaneLayout, targetLaneData);
+
+    // Score the default row-major layout first and only switch on a strict
+    // improvement, so a conversion that gains nothing keeps exactly the code
+    // and the descriptor it had.
+    int64_t fastestDim = rank - 1;
+    int64_t storeMergeDim =
+        isLaneFragmentRunAlongDim(fastestDim, inputLaneLayout, inputLaneData)
+            ? fastestDim
+            : -1;
+    int64_t loadMergeDim =
+        isLaneFragmentRunAlongDim(fastestDim, targetLaneLayout, targetLaneData)
+            ? fastestDim
+            : -1;
+    int64_t fewestAccesses =
+        countLaneFragmentAccesses(storeUnits, storeMergeDim) +
+        countLaneFragmentAccesses(loadUnits, loadMergeDim);
+    for (int64_t cand = 0; cand < rank - 1; ++cand) {
+      int64_t storeCand =
+          isLaneFragmentRunAlongDim(cand, inputLaneLayout, inputLaneData) ? cand
+                                                                            : -1;
+      int64_t loadCand =
+          isLaneFragmentRunAlongDim(cand, targetLaneLayout, targetLaneData) ? cand
+                                                                              : -1;
+      int64_t accesses = countLaneFragmentAccesses(storeUnits, storeCand) +
+                         countLaneFragmentAccesses(loadUnits, loadCand);
+      if (accesses < fewestAccesses) {
+        fewestAccesses = accesses;
+        fastestDim = cand;
+        storeMergeDim = storeCand;
+        loadMergeDim = loadCand;
+      }
+    }
+
+    // Strides putting `fastestDim` at stride 1, the other dimensions keeping
+    // their row-major order relative to each other. This is a permutation of
+    // the row-major strides, so it addresses the same bytes and the allocation
+    // above is unchanged. Left unset when it is already the row-major layout,
+    // to keep the common case spelled the way it was.
+    xegpu::MemLayoutAttr memLayoutAttr;
+    if (fastestDim != rank - 1) {
+      SmallVector<int64_t> strides(rank);
+      strides[fastestDim] = 1;
+      int64_t running = slmShape[fastestDim];
+      for (int64_t d = rank - 1; d >= 0; --d) {
+        if (d == fastestDim)
+          continue;
+        strides[d] = running;
+        running *= slmShape[d];
+      }
+      memLayoutAttr = xegpu::MemLayoutAttr::get(
+          rewriter.getContext(),
+          rewriter.getDictionaryAttr(rewriter.getNamedAttr(
+              "stride", rewriter.getI64ArrayAttr(strides))));
+    }
+
     Value memDesc = xegpu::CreateMemDescOp::create(
         rewriter, loc,
         xegpu::MemDescType::get(rewriter.getContext(), slmShape, elemTy,
-                                nullptr),
+                                memLayoutAttr),
         slm);
 
     // This subgroup's tile starts at `subgroup_id` tiles into the scratch.
@@ -2055,20 +2192,18 @@ struct SgToLaneConvertLayoutViaSLM
     if (failed(storeCoords))
       return rewriter.notifyMatchFailure(
           op, "failed to compute the input_layout coordinates");
-    SmallVector<int64_t> inputLaneLayout =
-        inputLayout.getEffectiveLaneLayoutAsInt();
-    SmallVector<int64_t> inputLaneData =
-        inputLayout.getEffectiveLaneDataAsInt();
     Value fragment =
         castValueTo(rewriter, cast<TypedValue<VectorType>>(adaptor.getSource()),
                     *distInputTy);
     for (auto [unit, coords] : llvm::enumerate(*storeCoords)) {
-      LaneFragmentPiece piece =
-          getLaneFragmentPiece(unit, sgShape, inputLaneLayout, inputLaneData);
+      std::optional<LaneFragmentPiece> piece = getLaneFragmentPiece(
+          unit, sgShape, inputLaneLayout, inputLaneData, storeMergeDim);
+      if (!piece)
+        continue;
       Value data = fragment;
-      if (piece.sizes != SmallVector<int64_t>(distInputTy->getShape()))
+      if (piece->sizes != SmallVector<int64_t>(distInputTy->getShape()))
         data = vector::ExtractStridedSliceOp::create(
-            rewriter, loc, fragment, piece.offsets, piece.sizes,
+            rewriter, loc, fragment, piece->offsets, piece->sizes,
             SmallVector<int64_t>(rank, 1));
       xegpu::StoreMatrixOp::create(rewriter, loc, TypeRange{}, data, memDesc,
                                    ValueRange(withBase(coords)), dynamicOffsets,
@@ -2087,18 +2222,16 @@ struct SgToLaneConvertLayoutViaSLM
     if (failed(loadCoords))
       return rewriter.notifyMatchFailure(
           op, "failed to compute the target_layout coordinates");
-    SmallVector<int64_t> targetLaneLayout =
-        targetLayout.getEffectiveLaneLayoutAsInt();
-    SmallVector<int64_t> targetLaneData =
-        targetLayout.getEffectiveLaneDataAsInt();
     Value result;
-    if (loadCoords->size() > 1)
+    if (countLaneFragmentAccesses(loadUnits, loadMergeDim) > 1)
       result = arith::ConstantOp::create(rewriter, loc, *distTargetTy,
                                          rewriter.getZeroAttr(*distTargetTy));
     for (auto [unit, coords] : llvm::enumerate(*loadCoords)) {
-      LaneFragmentPiece piece =
-          getLaneFragmentPiece(unit, sgShape, targetLaneLayout, targetLaneData);
-      auto pieceTy = VectorType::get(piece.sizes, elemTy);
+      std::optional<LaneFragmentPiece> piece = getLaneFragmentPiece(
+          unit, sgShape, targetLaneLayout, targetLaneData, loadMergeDim);
+      if (!piece)
+        continue;
+      auto pieceTy = VectorType::get(piece->sizes, elemTy);
       Value loaded = xegpu::LoadMatrixOp::create(
           rewriter, loc, pieceTy, memDesc, ValueRange(withBase(coords)),
           dynamicOffsets, nullptr, xegpu::DistributeLayoutAttr{});
@@ -2107,7 +2240,7 @@ struct SgToLaneConvertLayoutViaSLM
         break;
       }
       result = vector::InsertStridedSliceOp::create(
-          rewriter, loc, loaded, result, piece.offsets,
+          rewriter, loc, loaded, result, piece->offsets,
           SmallVector<int64_t>(rank, 1));
     }
 
