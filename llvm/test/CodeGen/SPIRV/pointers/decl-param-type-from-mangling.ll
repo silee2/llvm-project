@@ -25,6 +25,7 @@
 ; CHECK-DAG: %[[#GenPtrInt:]] = OpTypePointer Generic %[[#Int]]
 ; CHECK-DAG: %[[#GenPtrV4Float:]] = OpTypePointer Generic %[[#V4Float]]
 ; CHECK-DAG: %[[#GenPtrChar:]] = OpTypePointer Generic %[[#Char]]
+; CHECK-DAG: %[[#GenPtrFloat:]] = OpTypePointer Generic %[[#Float]]
 ; CHECK-DAG: %[[#CWPtrInt:]] = OpTypePointer CrossWorkgroup %[[#Int]]
 ; CHECK-DAG: %[[#CWPtrFloat:]] = OpTypePointer CrossWorkgroup %[[#Float]]
 
@@ -65,22 +66,23 @@
 ; CHECK: %[[#In:]] = OpFunctionParameter %[[#CWPtrInt]]
 ; CHECK: %[[#Out:]] = OpFunctionParameter %[[#CWPtrInt]]
 ; CHECK: %[[#F:]] = OpFunctionParameter %[[#CWPtrFloat]]
-; CHECK: %[[#FI:]] = OpBitcast %[[#CWPtrInt]] %[[#F]]
 ; CHECK: %[[#InG:]] = OpPtrCastToGeneric %[[#GenPtrInt]] %[[#In]]
 ; CHECK-NEXT: OpFunctionCall %[[#Int]] %[[#Load]] %[[#InG]]
 ; CHECK: %[[#OutG:]] = OpPtrCastToGeneric %[[#GenPtrInt]] %[[#Out]]
 ; CHECK-NEXT: OpFunctionCall %[[#Void]] %[[#Store]] %[[#OutG]] %[[#]]
 ; CHECK: %[[#V4G:]] = OpPtrCastToGeneric %[[#GenPtrV4Float]] %[[#]]
 ; CHECK-NEXT: OpFunctionCall %[[#V4Float]] %[[#LoadV4]] %[[#V4G]]
-; CHECK: %[[#FG:]] = OpPtrCastToGeneric %[[#GenPtrInt]] %[[#FI]]
-; CHECK-NEXT: OpFunctionCall %[[#Int]] %[[#Ref]] %[[#FG]]
+; %f keeps the float type from its load and is cast to int at the call.
+; CHECK: %[[#FG:]] = OpPtrCastToGeneric %[[#GenPtrFloat]] %[[#F]]
+; CHECK-NEXT: %[[#FI:]] = OpBitcast %[[#GenPtrInt]] %[[#FG]]
+; CHECK-NEXT: OpFunctionCall %[[#Int]] %[[#Ref]] %[[#FI]]
 ; CHECK: OpFunctionCall %[[#Float]] %[[#AS]] %[[#F]]
 ; CHECK: OpFunctionCall %[[#Int]] %[[#PtrPtr]]
 ; CHECK: OpFunctionCall %[[#Void]] %[[#VoidPtr]]
 ; CHECK: OpFunctionCall %[[#Int]] %[[#BoolPtr]]
 ; CHECK: OpFunctionCall %[[#Int]] %[[#Struct]]
 ; CHECK: OpFunctionCall %[[#Int]] %[[#FnPtr]]
-; CHECK: OpFunctionCall %[[#Int]] %[[#Mismatch]] %[[#FG]]
+; CHECK: OpFunctionCall %[[#Int]] %[[#Mismatch]] %[[#FI]]
 
 ; unsigned int ext_load(const unsigned int *p)
 declare spir_func i32 @_Z8ext_loadPKj(ptr addrspace(4))

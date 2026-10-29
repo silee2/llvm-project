@@ -11,7 +11,8 @@
 ; RUN: %if spirv-tools %{ spirv-val %t/linked64.spv %}
 
 ; Infer a namespaced free function's parameter independently of its definition.
-; Both callers must use int*, including the one passing a float allocation.
+; Both callers must pass int*. The float allocation keeps its type and is cast
+; at the call.
 ; CHECK-DAG: OpName %[[#Store:]] "_ZN2ns5storeEPi"
 ; CHECK-DAG: OpName %[[#TestFloat:]] "test_float"
 ; CHECK-DAG: OpName %[[#TestInt:]] "test_int"
@@ -21,14 +22,15 @@
 ; CHECK-DAG: %[[#FloatPtr:]] = OpTypePointer Function %[[#Float]]
 ; CHECK-DAG: %[[#IntPtr:]] = OpTypePointer Function %[[#Int]]
 ; CHECK-DAG: %[[#GenericIntPtr:]] = OpTypePointer Generic %[[#Int]]
+; CHECK-DAG: %[[#GenericFloatPtr:]] = OpTypePointer Generic %[[#Float]]
 ; CHECK-DAG: %[[#StoreTy:]] = OpTypeFunction %[[#Void]] %[[#GenericIntPtr]]
 ; CHECK: %[[#Store]] = OpFunction %[[#Void]] None %[[#StoreTy]]
 ; CHECK: OpFunctionParameter %[[#GenericIntPtr]]
 ; CHECK: %[[#TestFloat]] = OpFunction
 ; CHECK: %[[#F:]] = OpVariable %[[#FloatPtr]] Function
-; CHECK: %[[#FI:]] = OpBitcast %[[#IntPtr]] %[[#F]]
-; CHECK: %[[#FG:]] = OpPtrCastToGeneric %[[#GenericIntPtr]] %[[#FI]]
-; CHECK: OpFunctionCall %[[#Void]] %[[#Store]] %[[#FG]]
+; CHECK: %[[#FG:]] = OpPtrCastToGeneric %[[#GenericFloatPtr]] %[[#F]]
+; CHECK: %[[#FI:]] = OpBitcast %[[#GenericIntPtr]] %[[#FG]]
+; CHECK: OpFunctionCall %[[#Void]] %[[#Store]] %[[#FI]]
 ; CHECK: %[[#TestInt]] = OpFunction
 ; CHECK: %[[#I:]] = OpVariable %[[#IntPtr]] Function
 ; CHECK: %[[#IG:]] = OpPtrCastToGeneric %[[#GenericIntPtr]] %[[#I]]
