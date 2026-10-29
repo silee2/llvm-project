@@ -196,9 +196,6 @@ class SPIRVEmitIntrinsicsImpl
   GlobalVariableUsers GVUsers;
   SmallPtrSet<Value *, 0> Named;
 
-  // map of function declarations to <pointer arg index => element type>
-  DenseMap<Function *, SmallVector<std::pair<unsigned, Type *>>> FDeclPtrTys;
-
   // a register of Instructions that don't have a complete type definition
   bool CanTodoType = true;
   unsigned TodoTypeSz = 0;
@@ -322,8 +319,6 @@ class SPIRVEmitIntrinsicsImpl
   void replaceAllUsesWith(Value *Src, Value *Dest, bool DeleteOld = true);
   void replaceAllUsesWithAndErase(IRBuilder<> &B, Instruction *Src,
                                   Instruction *Dest, bool DeleteOld = true);
-
-  void applyDemangledPtrArgTypes(IRBuilder<> &B);
 
   GetElementPtrInst *simplifyZeroLengthArrayGepInst(GetElementPtrInst *GEP);
 
@@ -3659,62 +3654,6 @@ bool SPIRVEmitIntrinsicsImpl::processFunctionPointers(Module &M) {
   return true;
 }
 
-// Apply types parsed from demangled function declarations.
-void SPIRVEmitIntrinsicsImpl::applyDemangledPtrArgTypes(IRBuilder<> &B) {
-  DenseMap<Function *, CallInst *> Ptrcasts;
-  for (auto It : FDeclPtrTys) {
-    Function *F = It.first;
-    for (auto *U : F->users()) {
-      CallInst *CI = dyn_cast<CallInst>(U);
-      if (!CI || CI->getCalledFunction() != F)
-        continue;
-      unsigned Sz = CI->arg_size();
-      for (auto [Idx, ElemTy] : It.second) {
-        if (Idx >= Sz)
-          continue;
-        Value *Param = CI->getArgOperand(Idx);
-        if (GR->findDeducedElementType(Param) || isa<GlobalValue>(Param))
-          continue;
-        if (Argument *Arg = dyn_cast<Argument>(Param)) {
-          if (!hasPointeeTypeAttr(Arg)) {
-            B.SetInsertPointPastAllocas(Arg->getParent());
-            B.SetCurrentDebugLocation(DebugLoc());
-            GR->buildAssignPtr(B, ElemTy, Arg);
-          }
-        } else if (isaGEP(Param) || isa<AllocaInst>(Param)) {
-          // The allocated type defines the size of an alloca, so cast at the
-          // call instead of overriding its pointee type.
-          replaceUsesOfWithSpvPtrcast(
-              Param, normalizeType(ElemTy, CanUseAnyVectorRank), CI, Ptrcasts);
-        } else if (isa<Instruction>(Param)) {
-          GR->addDeducedElementType(Param,
-                                    normalizeType(ElemTy, CanUseAnyVectorRank));
-          // insertAssignTypeIntrs() will complete buildAssignPtr()
-        } else {
-          B.SetInsertPoint(CI->getParent()
-                               ->getParent()
-                               ->getEntryBlock()
-                               .getFirstNonPHIOrAlloca());
-          GR->buildAssignPtr(B, ElemTy, Param);
-        }
-        CallInst *Ref = dyn_cast<CallInst>(Param);
-        if (!Ref)
-          continue;
-        Function *RefF = Ref->getCalledFunction();
-        if (!RefF || !isPointerTy(RefF->getReturnType()) ||
-            GR->findDeducedElementType(RefF))
-          continue;
-        ElemTy = normalizeType(ElemTy, CanUseAnyVectorRank);
-        GR->addDeducedElementType(RefF, ElemTy);
-        GR->addReturnType(
-            RefF, TypedPointerType::get(
-                      ElemTy, getPointerAddressSpace(RefF->getReturnType())));
-      }
-    }
-  }
-  FDeclPtrTys.clear();
-}
-
 GetElementPtrInst *SPIRVEmitIntrinsicsImpl::simplifyZeroLengthArrayGepInst(
     GetElementPtrInst *GEP) {
   // getelementptr [0 x T], P, 0 (zero), I -> getelementptr T, P, I.
@@ -3910,8 +3849,6 @@ bool SPIRVEmitIntrinsicsImpl::runOnFunction(Function &Func) {
   SmallVector<Instruction *> Worklist(
       llvm::make_pointer_range(instructions(Func)));
 
-  applyDemangledPtrArgTypes(B);
-
   // Pass forward: use operand to deduce instructions result.
   for (auto &I : Worklist) {
     // Don't emit intrinsincs for convergence intrinsics.
@@ -4077,9 +4014,9 @@ void SPIRVEmitIntrinsicsImpl::parseFunDeclarations(Module &M) {
     const SPIRVSubtarget &ST = TM.getSubtarget<SPIRVSubtarget>(F);
     auto Set = ST.getPreferredInstructionSet();
     auto [Grp, Opcode, ExtNo] = SPIRV::mapBuiltinToOpcode(DemangledName, Set);
-    // Some builtins have no opcode mapping.
-    const bool IsBuiltin = Grp >= 0 || SPIRV::isBuiltin(DemangledName, Set);
-    if (IsBuiltin && Opcode != SPIRV::OpGroupAsyncCopy)
+    // Builtins are typed at their call sites by SPIRVBuiltins. Some have no
+    // opcode mapping.
+    if (Grp >= 0 || SPIRV::isBuiltin(DemangledName, Set))
       continue;
     SmallVector<unsigned> Idxs;
     for (Argument &Arg : F.args())
@@ -4093,33 +4030,25 @@ void SPIRVEmitIntrinsicsImpl::parseFunDeclarations(Module &M) {
     if (TypeStrs.empty())
       continue;
     // Avoid nested signatures and hidden ABI arguments such as this and sret.
-    if (!IsBuiltin && (!F.getName().starts_with("_Z") || F.hasStructRetAttr() ||
-                       StringRef(DemangledName).count('(') != 1 ||
-                       StringRef(DemangledName).count(')') != 1 ||
-                       StringRef(DemangledName).contains('<') ||
-                       TypeStrs.size() != F.arg_size()))
+    if (!F.getName().starts_with("_Z") || F.hasStructRetAttr() ||
+        StringRef(DemangledName).count('(') != 1 ||
+        StringRef(DemangledName).count(')') != 1 ||
+        StringRef(DemangledName).contains('<') ||
+        TypeStrs.size() != F.arg_size())
       continue;
     bool AllowLongVectors =
         ST.canUseExtension(SPIRV::Extension::SPV_EXT_long_vector);
     for (unsigned Idx : Idxs) {
       if (Idx >= TypeStrs.size())
         continue;
-      StringRef TypeStr = TypeStrs[Idx].trim();
-      Type *ElemTy = IsBuiltin
-                         ? SPIRV::parseBuiltinCallArgumentType(TypeStr, Ctx)
-                         : parseDeclPtrElemType(TypeStr, Ctx);
+      Type *ElemTy = parseDeclPtrElemType(TypeStrs[Idx].trim(), Ctx);
       if (!ElemTy || !TypedPointerType::isValidElementType(ElemTy) ||
           ElemTy->isTargetExtTy())
         continue;
-      if (!IsBuiltin) {
-        ElemTy = normalizeType(ElemTy, AllowLongVectors);
-        if (!AllowLongVectors && isLongVectorEXT(ElemTy))
-          continue;
-      }
-      FDeclPtrTys[&F].emplace_back(Idx, ElemTy);
-      if (!IsBuiltin)
-        ST.getSPIRVGlobalRegistry()->addDeducedElementType(F.getArg(Idx),
-                                                           ElemTy);
+      ElemTy = normalizeType(ElemTy, AllowLongVectors);
+      if (!AllowLongVectors && isLongVectorEXT(ElemTy))
+        continue;
+      ST.getSPIRVGlobalRegistry()->addDeducedElementType(F.getArg(Idx), ElemTy);
     }
   }
 }
