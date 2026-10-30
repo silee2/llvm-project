@@ -13,6 +13,7 @@ add_mlir_conversion_library(MLIRXeGPUToXeVM
   LINK_LIBS PUBLIC
   MLIRFuncDialect
   MLIRGPUDialect
+  MLIRGPUToLLVMSPV
   MLIRLLVMCommonConversion
   MLIRLLVMDialect
   MLIRXeVMDialect

@@ -10,6 +10,8 @@
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/LLVMIR/XeVMDialect.h"
 
+#include "mlir/Conversion/GPUToLLVMSPV/GPUToLLVMSPVPass.h"
+#include "mlir/Conversion/LLVMCommon/MemRefBuilder.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -67,16 +69,27 @@ static int32_t getNumericXeVMAddrSpace(xegpu::MemorySpace xeGpuMemspace) {
   llvm_unreachable("Unknown XeGPU memory space");
 }
 
-/// Checks if the given MemRefType refers to shared memory.
-static bool isSharedMemRef(const MemRefType &memrefTy) {
-  Attribute attr = memrefTy.getMemorySpace();
-  if (!attr)
-    return false;
-  if (auto intAttr = llvm::dyn_cast<IntegerAttr>(attr))
-    return intAttr.getInt() == static_cast<int>(xevm::AddrSpace::SHARED);
-  if (auto xevmSpace = llvm::dyn_cast<xevm::AddrSpaceAttr>(attr))
-    return xevmSpace.getValue() == xevm::AddrSpace::SHARED;
-  return gpu::GPUDialect::isWorkgroupMemoryAddressSpace(attr);
+/// Returns the base address of `converted` -- an LLVM memref descriptor
+/// obtained by converting a value of type `memRefTy` -- as an integer of type
+/// `intTy`.
+///
+/// The descriptor's offset is in units of elements and is folded into the
+/// returned address via a `llvm.getelementptr`, so the result is a byte
+/// address, matching what the XeGPU patterns expect.
+static Value memRefDescriptorToBaseAddr(ConversionPatternRewriter &rewriter,
+                                        Location loc,
+                                        const LLVMTypeConverter &converter,
+                                        MemRefType memRefTy, Value converted,
+                                        Type intTy) {
+  MemRefDescriptor desc(converted);
+  Value ptr = desc.alignedPtr(rewriter, loc);
+  Type elemTy = converter.convertType(memRefTy.getElementType());
+  if (!elemTy)
+    return {};
+  // GEP scales the offset by the element size for us.
+  ptr = LLVM::GEPOp::create(rewriter, loc, ptr.getType(), elemTy, ptr,
+                            desc.offset(rewriter, loc));
+  return LLVM::PtrToIntOp::create(rewriter, loc, intTy, ptr);
 }
 
 // Get same bitwidth flat vector type of new element type.
@@ -180,8 +193,8 @@ translateStoreXeGPUCacheHint(std::optional<xegpu::CachePolicy> L1hint,
 //
 
 class CreateNdDescToXeVMPattern
-    : public OpConversionPattern<xegpu::CreateNdDescOp> {
-  using OpConversionPattern::OpConversionPattern;
+    : public ConvertOpToLLVMPattern<xegpu::CreateNdDescOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
   LogicalResult
   matchAndRewrite(xegpu::CreateNdDescOp op,
                   xegpu::CreateNdDescOp::Adaptor adaptor,
@@ -212,15 +225,20 @@ class CreateNdDescToXeVMPattern
     int64_t rank = mixedSizes.size();
     auto sourceTy = source.getType();
     auto sourceMemrefTy = dyn_cast<MemRefType>(sourceTy);
-    // If source is a memref, we need to extract the aligned pointer as index.
-    // Pointer type is passed as i32 or i64 by type converter.
+    // If source is a memref, the standard LLVM type converter turns it into a
+    // memref descriptor; extract the base address (offset folded in) from it.
     if (sourceMemrefTy) {
       if (!sourceMemrefTy.hasRank()) {
         return rewriter.notifyMatchFailure(op, "Expected ranked Memref.");
       }
       // Access adaptor after failure check to avoid rolling back generated code
       // for materialization cast.
-      baseAddr = adaptor.getSource();
+      baseAddr = memRefDescriptorToBaseAddr(rewriter, loc, *getTypeConverter(),
+                                            sourceMemrefTy, adaptor.getSource(),
+                                            i64Ty);
+      if (!baseAddr)
+        return rewriter.notifyMatchFailure(
+            op, "Failed to convert memref element type.");
     } else {
       baseAddr = adaptor.getSource();
       if (baseAddr.getType() != i64Ty) {
@@ -228,9 +246,15 @@ class CreateNdDescToXeVMPattern
         baseAddr = arith::ExtUIOp::create(rewriter, loc, i64Ty, baseAddr);
       }
     }
-    // 1D tensor descriptor is just the base address.
+    // 1D tensor descriptor is just the base address, in the integer width the
+    // type converter picked for the descriptor.
     if (rank == 1) {
-      rewriter.replaceOp(op, baseAddr);
+      Type resTy = getTypeConverter()->convertType(op.getType());
+      Value addr = baseAddr;
+      unsigned resWidth = cast<IntegerType>(resTy).getWidth();
+      if (resWidth < 64)
+        addr = arith::TruncIOp::create(rewriter, loc, resTy, addr);
+      rewriter.replaceOp(op, addr);
       return success();
     }
     // Utility for creating offset values from op fold result.
@@ -556,8 +580,8 @@ static Value addOffsetToBaseAddr(ConversionPatternRewriter &rewriter,
 template <typename OpType,
           typename = std::enable_if_t<llvm::is_one_of<
               OpType, xegpu::LoadGatherOp, xegpu::StoreScatterOp>::value>>
-class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
-  using OpConversionPattern<OpType>::OpConversionPattern;
+class LoadStoreToXeVMPattern : public ConvertOpToLLVMPattern<OpType> {
+  using ConvertOpToLLVMPattern<OpType>::ConvertOpToLLVMPattern;
   LogicalResult
   matchAndRewrite(OpType op, typename OpType::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -588,21 +612,29 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
     LLVM::LLVMPointerType ptrTypeLLVM = LLVM::LLVMPointerType::get(
         ctxt, getNumericXeVMAddrSpace(xegpu::MemorySpace::Global));
     // Base pointer can come from source (load) or dest (store).
-    // If they are memrefs, we use their memory space.
+    // If they are memrefs, the standard LLVM type converter turns them into
+    // memref descriptors; extract the base address and use their memory space.
+    Value rawBase;
+    MemRefType baseMemRefTy;
     if constexpr (std::is_same_v<OpType, xegpu::LoadGatherOp>) {
-      basePtrI64 = adaptor.getSource();
-      if (auto memRefTy = dyn_cast<MemRefType>(op.getSource().getType())) {
-        auto addrSpace = memRefTy.getMemorySpaceAsInt();
-        if (addrSpace != 0)
-          ptrTypeLLVM = LLVM::LLVMPointerType::get(ctxt, addrSpace);
-      }
+      rawBase = adaptor.getSource();
+      baseMemRefTy = dyn_cast<MemRefType>(op.getSource().getType());
     } else {
-      basePtrI64 = adaptor.getDest();
-      if (auto memRefTy = dyn_cast<MemRefType>(op.getDest().getType())) {
-        auto addrSpace = memRefTy.getMemorySpaceAsInt();
-        if (addrSpace != 0)
-          ptrTypeLLVM = LLVM::LLVMPointerType::get(ctxt, addrSpace);
-      }
+      rawBase = adaptor.getDest();
+      baseMemRefTy = dyn_cast<MemRefType>(op.getDest().getType());
+    }
+    if (baseMemRefTy) {
+      auto addrSpace = baseMemRefTy.getMemorySpaceAsInt();
+      if (addrSpace != 0)
+        ptrTypeLLVM = LLVM::LLVMPointerType::get(ctxt, addrSpace);
+      basePtrI64 = memRefDescriptorToBaseAddr(
+          rewriter, loc, *this->getTypeConverter(), baseMemRefTy, rawBase,
+          rewriter.getI64Type());
+      if (!basePtrI64)
+        return rewriter.notifyMatchFailure(
+            op, "Failed to convert memref element type.");
+    } else {
+      basePtrI64 = rawBase;
     }
     // Base pointer is passed as i32 or i64 by adaptor, cast to i64 if needed.
     if (basePtrI64.getType() != rewriter.getI64Type()) {
@@ -683,14 +715,22 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
 };
 
 class CreateMemDescOpPattern final
-    : public OpConversionPattern<xegpu::CreateMemDescOp> {
+    : public ConvertOpToLLVMPattern<xegpu::CreateMemDescOp> {
 public:
-  using OpConversionPattern<xegpu::CreateMemDescOp>::OpConversionPattern;
+  using ConvertOpToLLVMPattern<xegpu::CreateMemDescOp>::ConvertOpToLLVMPattern;
   LogicalResult
   matchAndRewrite(xegpu::CreateMemDescOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    rewriter.replaceOp(op, adaptor.getSource());
+    // MemDescType is converted to a 32-bit SLM address. Extract the base
+    // address out of the source memref descriptor.
+    auto srcMemRefTy = cast<MemRefType>(op.getSource().getType());
+    Value addr = memRefDescriptorToBaseAddr(
+        rewriter, op.getLoc(), *getTypeConverter(), srcMemRefTy,
+        adaptor.getSource(), rewriter.getI32Type());
+    if (!addr)
+      return rewriter.notifyMatchFailure(
+          op, "Failed to convert memref element type.");
+    rewriter.replaceOp(op, addr);
     return success();
   }
 };
@@ -813,14 +853,26 @@ class LoadStoreMatrixToXeVMPattern : public OpConversionPattern<OpType> {
   }
 };
 
-class PrefetchToXeVMPattern : public OpConversionPattern<xegpu::PrefetchOp> {
-  using OpConversionPattern::OpConversionPattern;
+class PrefetchToXeVMPattern : public ConvertOpToLLVMPattern<xegpu::PrefetchOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
   LogicalResult
   matchAndRewrite(xegpu::PrefetchOp op, xegpu::PrefetchOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
     auto ctxt = rewriter.getContext();
-    Value basePtrI64 = adaptor.getSource();
+    Value basePtrI64;
+    // If the source is a memref, extract the base address out of its
+    // descriptor; otherwise it is already an integer address.
+    if (auto srcMemRefTy = dyn_cast<MemRefType>(op.getSource().getType())) {
+      basePtrI64 = memRefDescriptorToBaseAddr(
+          rewriter, loc, *getTypeConverter(), srcMemRefTy, adaptor.getSource(),
+          rewriter.getI64Type());
+      if (!basePtrI64)
+        return rewriter.notifyMatchFailure(
+            op, "Failed to convert memref element type.");
+    } else {
+      basePtrI64 = adaptor.getSource();
+    }
     // Base pointer is passed as i32 or i64 by adaptor, cast to i64 if needed.
     if (basePtrI64.getType() != rewriter.getI64Type())
       basePtrI64 = arith::ExtUIOp::create(rewriter, loc, rewriter.getI64Type(),
@@ -1325,6 +1377,22 @@ struct ConvertXeGPUToXeVMPass
     options.overrideIndexBitwidth(this->use64bitIndex ? 64 : 32);
     LLVMTypeConverter typeConverter(context, options);
 
+    // MemRefType is converted by the standard LLVM type converter, which needs
+    // to map the memory space attribute to a numeric address space. Integer
+    // memory spaces are handled by LLVMTypeConverter itself; register the two
+    // symbolic encodings XeGPU accepts.
+    //
+    // gpu.address_space<...> uses the same OpenCL numbering that
+    // xevm::AddrSpace does, and this is the mapping GPUToLLVMSPV installs, so
+    // the two passes agree.
+    populateGpuMemorySpaceAttributeConversions(typeConverter);
+    typeConverter.addTypeAttributeConversion(
+        [](BaseMemRefType type, xevm::AddrSpaceAttr space)
+            -> TypeConverter::AttributeConversionResult {
+          return IntegerAttr::get(IntegerType::get(space.getContext(), 64),
+                                  static_cast<unsigned>(space.getValue()));
+        });
+
     Type xevmIndexType = typeConverter.convertType(IndexType::get(context));
     Type i32Type = IntegerType::get(context, 32);
     typeConverter.addConversion([&](VectorType type) -> Type {
@@ -1352,76 +1420,8 @@ struct ConvertXeGPUToXeVMPass
     typeConverter.addConversion(
         [&](xegpu::MemDescType type) -> Type { return i32Type; });
 
-    typeConverter.addConversion([&](MemRefType type) -> Type {
-      return isSharedMemRef(type) ? i32Type : xevmIndexType;
-    });
-
     // LLVM type converter puts unrealized casts for the following cases:
     // add materialization casts to handle them.
-
-    // Materialization to convert memref to i64 or i32 depending on global/SLM
-    // Applies only to target materialization.
-    // Note: int type to memref materialization is not required as xegpu ops
-    // currently do not produce memrefs as result.
-    auto memrefToIntMaterializationCast = [](OpBuilder &builder, Type type,
-                                             ValueRange inputs,
-                                             Location loc) -> Value {
-      if (inputs.size() != 1)
-        return {};
-      auto input = inputs.front();
-      if (auto memrefTy = dyn_cast<MemRefType>(input.getType())) {
-        unsigned rank = memrefTy.getRank();
-        Type indexType = builder.getIndexType();
-
-        int64_t intOffsets;
-        SmallVector<int64_t> intStrides;
-        Value addr;
-        Value offset;
-        if (succeeded(memrefTy.getStridesAndOffset(intStrides, intOffsets)) &&
-            ShapedType::isStatic(intOffsets)) {
-          addr = memref::ExtractAlignedPointerAsIndexOp::create(builder, loc,
-                                                                input);
-          offset = arith::ConstantOp::create(builder, loc,
-                                             builder.getIndexAttr(intOffsets));
-        } else {
-
-          // Result types: [base_memref, offset, stride0, stride1, ...,
-          // strideN-1, size0, size1, ..., sizeN-1]
-          SmallVector<Type> resultTypes{
-              MemRefType::get({}, memrefTy.getElementType(),
-                              MemRefLayoutAttrInterface(),
-                              memrefTy.getMemorySpace()),
-              indexType};
-          // strides + sizes
-          resultTypes.append(2 * rank, indexType);
-
-          auto meta = memref::ExtractStridedMetadataOp::create(
-              builder, loc, resultTypes, input);
-
-          addr = memref::ExtractAlignedPointerAsIndexOp::create(
-              builder, loc, meta.getBaseBuffer());
-          offset = meta.getOffset();
-        }
-
-        auto addrCasted =
-            arith::IndexCastUIOp::create(builder, loc, type, addr);
-        auto offsetCasted =
-            arith::IndexCastUIOp::create(builder, loc, type, offset);
-
-        // Compute the final address: base address + byte offset
-        auto byteSize = arith::ConstantOp::create(
-            builder, loc, type,
-            builder.getIntegerAttr(type,
-                                   memrefTy.getElementTypeBitWidth() / 8));
-        auto byteOffset =
-            arith::MulIOp::create(builder, loc, offsetCasted, byteSize);
-        auto addrWithOffset =
-            arith::AddIOp::create(builder, loc, addrCasted, byteOffset);
-
-        return addrWithOffset.getResult();
-      }
-      return {};
-    };
 
     // Materialization to convert ui64 to i64
     // Applies only to target materialization.
@@ -1574,7 +1574,6 @@ struct ConvertXeGPUToXeVMPass
     typeConverter.addSourceMaterialization(
         singleElementToVectorMaterializationCast);
     typeConverter.addSourceMaterialization(vectorToVectorMaterializationCast);
-    typeConverter.addTargetMaterialization(memrefToIntMaterializationCast);
     typeConverter.addTargetMaterialization(ui32ToI32MaterializationCast);
     typeConverter.addTargetMaterialization(ui64ToI64MaterializationCast);
     typeConverter.addTargetMaterialization(
@@ -1609,18 +1608,20 @@ struct ConvertXeGPUToXeVMPass
 //===----------------------------------------------------------------------===//
 void mlir::populateXeGPUToXeVMConversionPatterns(
     const LLVMTypeConverter &typeConverter, RewritePatternSet &patterns) {
-  patterns.add<CreateNdDescToXeVMPattern,
-               LoadStorePrefetchNdToXeVMPattern<xegpu::LoadNdOp>,
+  // Patterns deriving from ConvertOpToLLVMPattern take only the type
+  // converter; its second constructor argument is a PatternBenefit.
+  patterns.add<CreateNdDescToXeVMPattern, PrefetchToXeVMPattern,
+               LoadStoreToXeVMPattern<xegpu::LoadGatherOp>,
+               LoadStoreToXeVMPattern<xegpu::StoreScatterOp>,
+               CreateMemDescOpPattern>(typeConverter);
+  patterns.add<LoadStorePrefetchNdToXeVMPattern<xegpu::LoadNdOp>,
                LoadStorePrefetchNdToXeVMPattern<xegpu::StoreNdOp>,
                LoadStorePrefetchNdToXeVMPattern<xegpu::PrefetchNdOp>>(
       typeConverter, patterns.getContext());
-  patterns.add<AtomicRMWToXeVMPattern, PrefetchToXeVMPattern,
-               LoadStoreToXeVMPattern<xegpu::LoadGatherOp>,
-               LoadStoreToXeVMPattern<xegpu::StoreScatterOp>>(
-      typeConverter, patterns.getContext());
+  patterns.add<AtomicRMWToXeVMPattern>(typeConverter, patterns.getContext());
   patterns.add<LoadStoreMatrixToXeVMPattern<xegpu::LoadMatrixOp>,
-               LoadStoreMatrixToXeVMPattern<xegpu::StoreMatrixOp>,
-               CreateMemDescOpPattern>(typeConverter, patterns.getContext());
+               LoadStoreMatrixToXeVMPattern<xegpu::StoreMatrixOp>>(
+      typeConverter, patterns.getContext());
   patterns.add<FenceToXeVMPattern, DpasToXeVMPattern>(typeConverter,
                                                       patterns.getContext());
   patterns.add<DpasMxToXeVMPattern>(typeConverter, patterns.getContext());
