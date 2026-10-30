@@ -23,6 +23,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Demangle/ItaniumDemangle.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/InstVisitor.h"
@@ -31,12 +32,14 @@
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/IR/TypedPointerType.h"
 #include "llvm/IR/Value.h"
+#include "llvm/Support/Allocator.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Local.h"
 
 #include <cassert>
+#include <cstdlib>
 #include <optional>
 #include <queue>
 
@@ -3965,58 +3968,136 @@ bool SPIRVEmitIntrinsicsImpl::postprocessTypes(Module &M) {
   return SzTodo > TodoTypeSz;
 }
 
-// Parse unambiguous scalar/vector pointees, e.g. "float vector[4] const*".
-static Type *parseDeclPtrElemType(StringRef TypeStr, LLVMContext &Ctx) {
-  if (!TypeStr.consume_back("*") && !TypeStr.consume_back("&"))
-    return nullptr;
-  StringRef ScalarName = TypeStr;
-  Type *ElemTy = parseBasicTypeName(TypeStr, Ctx);
-  if (!ElemTy || ElemTy->isVoidTy() || ElemTy->isIntegerTy(1))
-    return nullptr;
-  ScalarName = ScalarName.drop_back(TypeStr.size());
-  // OpenCL aliases such as uint can also name C++ classes.
-  if (!StringSwitch<bool>(ScalarName)
-           .Cases({"char", "signed char", "unsigned char", "short",
-                   "unsigned short", "int", "unsigned int", "_Float16", "float",
-                   "double"},
-                  true)
-           .Default(false) ||
-      (!TypeStr.empty() && !TypeStr.starts_with(" ")))
-    return nullptr;
-  if (TypeStr.consume_front(" vector[")) {
-    auto [Count, Rest] = TypeStr.split(']');
-    unsigned NumElts = 0;
-    if (Count.getAsInteger(10, NumElts) || NumElts == 0)
-      return nullptr;
-    ElemTy = FixedVectorType::get(ElemTy, NumElts);
-    TypeStr = Rest;
+namespace {
+namespace itd = llvm::itanium_demangle;
+
+class DemangleNodeAllocator {
+  BumpPtrAllocator Alloc;
+
+public:
+  void reset() { Alloc.Reset(); }
+
+  template <typename T, typename... Args> T *makeNode(Args &&...Arguments) {
+    return new (Alloc.Allocate(sizeof(T), alignof(T)))
+        T(std::forward<Args>(Arguments)...);
   }
-  // Only cv and address space qualifiers may follow.
-  SmallVector<StringRef, 4> Quals;
-  TypeStr.split(Quals, ' ', -1, /*KeepEmpty=*/false);
-  for (StringRef Qual : Quals) {
-    unsigned AS;
-    if (Qual != "const" && Qual != "volatile" && Qual != "restrict" &&
-        !(Qual.consume_front("AS") && !Qual.getAsInteger(10, AS)))
-      return nullptr;
+
+  void *allocateNodeArray(size_t Sz) {
+    return Alloc.Allocate(sizeof(itd::Node *) * Sz, alignof(itd::Node *));
   }
-  return ElemTy;
+};
+
+// Parses a mangled function name and records which nodes come from a
+// <builtin-type> code. A class named e.g. "half" or "uint" produces the same
+// node kind and spelling as a builtin type, so the spelling alone is ambiguous.
+class DeclSignatureParser
+    : public itd::AbstractManglingParser<DeclSignatureParser,
+                                         DemangleNodeAllocator> {
+  using Base =
+      itd::AbstractManglingParser<DeclSignatureParser, DemangleNodeAllocator>;
+  SmallPtrSet<const itd::Node *, 8> BuiltinTypes;
+
+public:
+  DeclSignatureParser(StringRef Mangled)
+      : Base(Mangled.begin(), Mangled.end()) {}
+
+  itd::Node *parseType() {
+    // Builtin types are lowercase codes other than the restrict qualifier and
+    // vendor extended types, or start with 'D'.
+    bool IsBuiltin =
+        First != Last &&
+        ((*First >= 'a' && *First <= 'z' && *First != 'r' && *First != 'u') ||
+         *First == 'D');
+    itd::Node *Ty = Base::parseType();
+    if (Ty && IsBuiltin)
+      BuiltinTypes.insert(Ty);
+    return Ty;
+  }
+
+  bool isBuiltinType(const itd::Node *N) const {
+    return BuiltinTypes.contains(N);
+  }
+};
+} // namespace
+
+// Skip cv and address space qualifiers.
+static const itd::Node *stripDeclTypeQualifiers(const itd::Node *N) {
+  while (N) {
+    if (N->getKind() == itd::Node::KQualType) {
+      N = static_cast<const itd::QualType *>(N)->getChild();
+    } else if (N->getKind() == itd::Node::KVendorExtQualType) {
+      const auto *Q = static_cast<const itd::VendorExtQualType *>(N);
+      StringRef Ext = Q->getExt();
+      unsigned AS;
+      if (Q->getTA() || !Ext.consume_front("AS") || Ext.getAsInteger(10, AS))
+        return nullptr;
+      N = Q->getTy();
+    } else {
+      return N;
+    }
+  }
+  return nullptr;
+}
+
+static Type *getDeclScalarType(const itd::Node *N,
+                               const DeclSignatureParser &Parser,
+                               LLVMContext &Ctx) {
+  if (!N || !Parser.isBuiltinType(N))
+    return nullptr;
+  if (N->getKind() == itd::Node::KBinaryFPType) {
+    bool IsFloat16 = false;
+    static_cast<const itd::BinaryFPType *>(N)->match([&](const itd::Node *Dim) {
+      IsFloat16 = Dim->getKind() == itd::Node::KNameType &&
+                  static_cast<const itd::NameType *>(Dim)->getName() == "16";
+    });
+    return IsFloat16 ? Type::getHalfTy(Ctx) : nullptr;
+  }
+  if (N->getKind() != itd::Node::KNameType)
+    return nullptr;
+  // long is not mapped, as offloading languages such as SYCL use the host's
+  // width for it.
+  return StringSwitch<Type *>(static_cast<const itd::NameType *>(N)->getName())
+      .Cases({"char", "signed char", "unsigned char"}, Type::getInt8Ty(Ctx))
+      .Cases({"short", "unsigned short"}, Type::getInt16Ty(Ctx))
+      .Cases({"int", "unsigned int"}, Type::getInt32Ty(Ctx))
+      .Cases({"long long", "unsigned long long"}, Type::getInt64Ty(Ctx))
+      .Case("half", Type::getHalfTy(Ctx))
+      .Case("float", Type::getFloatTy(Ctx))
+      .Case("double", Type::getDoubleTy(Ctx))
+      .Default(nullptr);
+}
+
+// Return the scalar or vector pointee of a pointer or reference parameter.
+static Type *getDeclPtrElemType(const itd::Node *Param,
+                                const DeclSignatureParser &Parser,
+                                LLVMContext &Ctx) {
+  const itd::Node *Pointee = nullptr;
+  if (Param->getKind() == itd::Node::KPointerType)
+    Pointee = static_cast<const itd::PointerType *>(Param)->getPointee();
+  else if (Param->getKind() == itd::Node::KReferenceType)
+    static_cast<const itd::ReferenceType *>(Param)->match(
+        [&](const itd::Node *P, itd::ReferenceKind) { Pointee = P; });
+  Pointee = stripDeclTypeQualifiers(Pointee);
+  if (!Pointee || Pointee->getKind() != itd::Node::KVectorType)
+    return getDeclScalarType(Pointee, Parser, Ctx);
+
+  const auto *VecTy = static_cast<const itd::VectorType *>(Pointee);
+  const itd::Node *Dim = VecTy->getDimension();
+  unsigned NumElts = 0;
+  if (!Dim || Dim->getKind() != itd::Node::KNameType ||
+      StringRef(static_cast<const itd::NameType *>(Dim)->getName())
+          .getAsInteger(10, NumElts) ||
+      NumElts == 0)
+    return nullptr;
+  Type *ElemTy = getDeclScalarType(VecTy->getBaseType(), Parser, Ctx);
+  return ElemTy ? FixedVectorType::get(ElemTy, NumElts) : nullptr;
 }
 
 // Parse and store argument types of function declarations where needed.
 void SPIRVEmitIntrinsicsImpl::parseFunDeclarations(Module &M) {
   for (auto &F : M) {
-    if (!F.isDeclaration() || F.isIntrinsic())
-      continue;
-    std::string DemangledName = getOclOrSpirvBuiltinDemangledName(F.getName());
-    if (DemangledName.empty())
-      continue;
-    const SPIRVSubtarget &ST = TM.getSubtarget<SPIRVSubtarget>(F);
-    auto Set = ST.getPreferredInstructionSet();
-    auto [Grp, Opcode, ExtNo] = SPIRV::mapBuiltinToOpcode(DemangledName, Set);
-    // Builtins are typed at their call sites by SPIRVBuiltins. Some have no
-    // opcode mapping.
-    if (Grp >= 0 || SPIRV::isBuiltin(DemangledName, Set))
+    if (!F.isDeclaration() || F.isIntrinsic() ||
+        !F.getName().starts_with("_Z") || F.hasStructRetAttr())
       continue;
     SmallVector<unsigned> Idxs;
     for (Argument &Arg : F.args())
@@ -4024,26 +4105,35 @@ void SPIRVEmitIntrinsicsImpl::parseFunDeclarations(Module &M) {
         Idxs.push_back(Arg.getArgNo());
     if (Idxs.empty())
       continue;
+    DeclSignatureParser Parser(F.getName());
+    const itd::Node *Root = Parser.parse();
+    if (!Root || Root->getKind() != itd::Node::KFunctionEncoding)
+      continue;
+    // This prints the same name as getOclOrSpirvBuiltinDemangledName().
+    itd::OutputBuffer OB;
+    Root->print(OB);
+    std::string DemangledName(OB.getBuffer(), OB.getCurrentPosition());
+    std::free(OB.getBuffer());
+    const SPIRVSubtarget &ST = TM.getSubtarget<SPIRVSubtarget>(F);
+    auto Set = ST.getPreferredInstructionSet();
+    auto [Grp, Opcode, ExtNo] = SPIRV::mapBuiltinToOpcode(DemangledName, Set);
+    // Builtins are typed at their call sites by SPIRVBuiltins. Some have no
+    // opcode mapping.
+    if (Grp >= 0 || SPIRV::isBuiltin(DemangledName, Set))
+      continue;
+    const auto *Encoding = static_cast<const itd::FunctionEncoding *>(Root);
+    // A different parameter count means hidden or expanded arguments, such as
+    // the this argument of member functions, so the parameters cannot be
+    // matched to the IR arguments.
+    itd::NodeArray Params = Encoding->getParams();
+    if (Params.size() != F.arg_size())
+      continue;
     LLVMContext &Ctx = F.getContext();
-    SmallVector<StringRef, 10> TypeStrs;
-    SPIRV::parseBuiltinTypeStr(TypeStrs, DemangledName, Ctx);
-    if (TypeStrs.empty())
-      continue;
-    // Avoid nested signatures and hidden ABI arguments such as this and sret.
-    if (!F.getName().starts_with("_Z") || F.hasStructRetAttr() ||
-        StringRef(DemangledName).count('(') != 1 ||
-        StringRef(DemangledName).count(')') != 1 ||
-        StringRef(DemangledName).contains('<') ||
-        TypeStrs.size() != F.arg_size())
-      continue;
     bool AllowLongVectors =
         ST.canUseExtension(SPIRV::Extension::SPV_EXT_long_vector);
     for (unsigned Idx : Idxs) {
-      if (Idx >= TypeStrs.size())
-        continue;
-      Type *ElemTy = parseDeclPtrElemType(TypeStrs[Idx].trim(), Ctx);
-      if (!ElemTy || !TypedPointerType::isValidElementType(ElemTy) ||
-          ElemTy->isTargetExtTy())
+      Type *ElemTy = getDeclPtrElemType(Params[Idx], Parser, Ctx);
+      if (!ElemTy)
         continue;
       ElemTy = normalizeType(ElemTy, AllowLongVectors);
       if (!AllowLongVectors && isLongVectorEXT(ElemTy))

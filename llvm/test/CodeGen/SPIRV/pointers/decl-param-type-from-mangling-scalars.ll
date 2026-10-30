@@ -1,12 +1,17 @@
 ; RUN: llc -verify-machineinstrs -O0 -mtriple=spirv64-unknown-unknown %s -o - | FileCheck %s
 ; RUN: %if spirv-tools %{ llc -O0 -mtriple=spirv64-unknown-unknown %s -o - -filetype=obj | spirv-val %}
 
-; Cover unambiguous scalar spellings and combined restrict/volatile qualifiers.
+; Cover unambiguous scalar spellings, combined restrict/volatile qualifiers and
+; rvalue references.
 ; CHECK-DAG: OpName %[[#Char:]] "_Z4takePa"
 ; CHECK-DAG: OpName %[[#Short:]] "_Z4takePs"
 ; CHECK-DAG: OpName %[[#Double:]] "_Z4takePd"
 ; CHECK-DAG: OpName %[[#Qual:]] "_Z4takePVri"
 ; CHECK-DAG: OpName %[[#Half:]] "_Z4takePDF16_"
+; CHECK-DAG: OpName %[[#OclHalf:]] "_Z4takePDh"
+; CHECK-DAG: OpName %[[#LongLong:]] "_Z4takePx"
+; CHECK-DAG: OpName %[[#ULongLong:]] "_Z4takePy"
+; CHECK-DAG: OpName %[[#RValueRef:]] "_Z4takeOKi"
 ; CHECK-DAG: %[[#Void:]] = OpTypeVoid
 ; CHECK-DAG: %[[#CharTy:]] = OpTypeInt 8 0
 ; CHECK-DAG: %[[#CharPtr:]] = OpTypePointer CrossWorkgroup %[[#CharTy]]
@@ -23,18 +28,29 @@
 ; CHECK-DAG: %[[#HalfTy:]] = OpTypeFloat 16
 ; CHECK-DAG: %[[#HalfPtr:]] = OpTypePointer CrossWorkgroup %[[#HalfTy]]
 ; CHECK-DAG: %[[#HalfFn:]] = OpTypeFunction %[[#Void]] %[[#HalfPtr]]
+; CHECK-DAG: %[[#LongTy:]] = OpTypeInt 64 0
+; CHECK-DAG: %[[#LongPtr:]] = OpTypePointer CrossWorkgroup %[[#LongTy]]
+; CHECK-DAG: %[[#LongFn:]] = OpTypeFunction %[[#Void]] %[[#LongPtr]]
 
 ; CHECK: %[[#Char]] = OpFunction %[[#Void]] None %[[#CharFn]]
 ; CHECK: %[[#Short]] = OpFunction %[[#Void]] None %[[#ShortFn]]
 ; CHECK: %[[#Double]] = OpFunction %[[#Void]] None %[[#DoubleFn]]
 ; CHECK: %[[#Qual]] = OpFunction %[[#Void]] None %[[#QualFn]]
 ; CHECK: %[[#Half]] = OpFunction %[[#Void]] None %[[#HalfFn]]
+; CHECK: %[[#OclHalf]] = OpFunction %[[#Void]] None %[[#HalfFn]]
+; CHECK: %[[#LongLong]] = OpFunction %[[#Void]] None %[[#LongFn]]
+; CHECK: %[[#ULongLong]] = OpFunction %[[#Void]] None %[[#LongFn]]
+; CHECK: %[[#RValueRef]] = OpFunction %[[#Void]] None %[[#QualFn]]
 
 declare spir_func void @_Z4takePa(ptr addrspace(1))
 declare spir_func void @_Z4takePs(ptr addrspace(1))
 declare spir_func void @_Z4takePd(ptr addrspace(1))
 declare spir_func void @_Z4takePVri(ptr addrspace(1))
 declare spir_func void @_Z4takePDF16_(ptr addrspace(1))
+declare spir_func void @_Z4takePDh(ptr addrspace(1))
+declare spir_func void @_Z4takePx(ptr addrspace(1))
+declare spir_func void @_Z4takePy(ptr addrspace(1))
+declare spir_func void @_Z4takeOKi(ptr addrspace(1))
 
 define spir_kernel void @test(ptr addrspace(1) %p) {
   call spir_func void @_Z4takePa(ptr addrspace(1) %p)
@@ -42,5 +58,9 @@ define spir_kernel void @test(ptr addrspace(1) %p) {
   call spir_func void @_Z4takePd(ptr addrspace(1) %p)
   call spir_func void @_Z4takePVri(ptr addrspace(1) %p)
   call spir_func void @_Z4takePDF16_(ptr addrspace(1) %p)
+  call spir_func void @_Z4takePDh(ptr addrspace(1) %p)
+  call spir_func void @_Z4takePx(ptr addrspace(1) %p)
+  call spir_func void @_Z4takePy(ptr addrspace(1) %p)
+  call spir_func void @_Z4takeOKi(ptr addrspace(1) %p)
   ret void
 }
