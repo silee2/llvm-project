@@ -5,7 +5,8 @@
 ; Do not infer scalar pointees from class names or map source parameters onto
 ; implicit this/sret arguments. The template comma also makes the naive split's
 ; count equal the IR argument count, despite this being a member function.
-; Rvalue references, long and long long types retain the fallback.
+; long and unsigned long retain the fallback, as their width can follow the
+; host. Vendor qualifiers other than address spaces also retain it.
 ; CHECK-DAG: OpName %[[#UInt:]] "_Z4takeP4uint"
 ; CHECK-DAG: OpName %[[#IntConst:]] "_Z4takeP8intconst"
 ; CHECK-DAG: OpName %[[#Atomic:]] "_Z4takeP10atomic_int"
@@ -14,9 +15,8 @@
 ; CHECK-DAG: OpName %[[#Template:]] "_ZN1S4pairEP4PairIifEPi"
 ; CHECK-DAG: OpName %[[#Long:]] "_Z4takePl"
 ; CHECK-DAG: OpName %[[#ULong:]] "_Z4takePm"
-; CHECK-DAG: OpName %[[#LongLong:]] "_Z4takePx"
-; CHECK-DAG: OpName %[[#ULongLong:]] "_Z4takePy"
-; CHECK-DAG: OpName %[[#RValueRef:]] "_Z4takeOKi"
+; CHECK-DAG: OpName %[[#ConstMember:]] "_ZNK1S4takeEPi"
+; CHECK-DAG: OpName %[[#AtomicQual:]] "_Z4takePU7_Atomici"
 ; CHECK-DAG: OpName %[[#SRet:]] "_Z4takePiPf"
 ; CHECK-DAG: OpName %[[#ByVal:]] "_Z5byvalPi"
 ; CHECK-DAG: %[[#Void:]] = OpTypeVoid
@@ -27,6 +27,7 @@
 ; CHECK-DAG: %[[#StructPtr:]] = OpTypePointer CrossWorkgroup %[[#Struct]]
 ; CHECK-DAG: %[[#FallbackTy:]] = OpTypeFunction %[[#Void]] %[[#CharPtr]]
 ; CHECK-DAG: %[[#MemberTy:]] = OpTypeFunction %[[#Void]] %[[#CharPtr]] %[[#CharPtr]] %[[#CharPtr]]
+; CHECK-DAG: %[[#ConstMemberTy:]] = OpTypeFunction %[[#Void]] %[[#CharPtr]] %[[#CharPtr]]{{$}}
 ; CHECK-DAG: %[[#SRetTy:]] = OpTypeFunction %[[#Void]] %[[#StructPtr]] %[[#CharPtr]] %[[#CharPtr]]
 ; CHECK-DAG: %[[#ByValTy:]] = OpTypeFunction %[[#Void]] %[[#StructPtr]]
 
@@ -38,9 +39,8 @@
 ; CHECK: %[[#Template]] = OpFunction %[[#Void]] None %[[#MemberTy]]
 ; CHECK: %[[#Long]] = OpFunction %[[#Void]] None %[[#FallbackTy]]
 ; CHECK: %[[#ULong]] = OpFunction %[[#Void]] None %[[#FallbackTy]]
-; CHECK: %[[#LongLong]] = OpFunction %[[#Void]] None %[[#FallbackTy]]
-; CHECK: %[[#ULongLong]] = OpFunction %[[#Void]] None %[[#FallbackTy]]
-; CHECK: %[[#RValueRef]] = OpFunction %[[#Void]] None %[[#FallbackTy]]
+; CHECK: %[[#ConstMember]] = OpFunction %[[#Void]] None %[[#ConstMemberTy]]
+; CHECK: %[[#AtomicQual]] = OpFunction %[[#Void]] None %[[#FallbackTy]]
 ; CHECK: %[[#SRet]] = OpFunction %[[#Void]] None %[[#SRetTy]]
 ; Explicit pointee type attributes take precedence over the mangled name.
 ; CHECK: %[[#ByVal]] = OpFunction %[[#Void]] None %[[#ByValTy]]
@@ -54,9 +54,8 @@ declare spir_func void @_ZN1S4takeEPiPf(ptr addrspace(1), ptr addrspace(1), ptr 
 declare spir_func void @_ZN1S4pairEP4PairIifEPi(ptr addrspace(1), ptr addrspace(1), ptr addrspace(1))
 declare spir_func void @_Z4takePl(ptr addrspace(1))
 declare spir_func void @_Z4takePm(ptr addrspace(1))
-declare spir_func void @_Z4takePx(ptr addrspace(1))
-declare spir_func void @_Z4takePy(ptr addrspace(1))
-declare spir_func void @_Z4takeOKi(ptr addrspace(1))
+declare spir_func void @_ZNK1S4takeEPi(ptr addrspace(1), ptr addrspace(1))
+declare spir_func void @_Z4takePU7_Atomici(ptr addrspace(1))
 declare spir_func void @_Z4takePiPf(ptr addrspace(1) sret(%S), ptr addrspace(1), ptr addrspace(1))
 declare spir_func void @_Z5byvalPi(ptr addrspace(1) byval(%S))
 
@@ -69,9 +68,8 @@ define spir_kernel void @test(ptr addrspace(1) %p) {
   call spir_func void @_ZN1S4pairEP4PairIifEPi(ptr addrspace(1) %p, ptr addrspace(1) %p, ptr addrspace(1) %p)
   call spir_func void @_Z4takePl(ptr addrspace(1) %p)
   call spir_func void @_Z4takePm(ptr addrspace(1) %p)
-  call spir_func void @_Z4takePx(ptr addrspace(1) %p)
-  call spir_func void @_Z4takePy(ptr addrspace(1) %p)
-  call spir_func void @_Z4takeOKi(ptr addrspace(1) %p)
+  call spir_func void @_ZNK1S4takeEPi(ptr addrspace(1) %p, ptr addrspace(1) %p)
+  call spir_func void @_Z4takePU7_Atomici(ptr addrspace(1) %p)
   call spir_func void @_Z4takePiPf(ptr addrspace(1) sret(%S) %p, ptr addrspace(1) %p, ptr addrspace(1) %p)
   call spir_func void @_Z5byvalPi(ptr addrspace(1) byval(%S) %p)
   ret void
