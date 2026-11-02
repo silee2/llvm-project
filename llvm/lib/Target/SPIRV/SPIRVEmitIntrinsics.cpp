@@ -4111,6 +4111,7 @@ class DeclSignatureParser
   using Base =
       itd::AbstractManglingParser<DeclSignatureParser, DemangleNodeAllocator>;
   SmallPtrSet<const itd::Node *, 8> BuiltinTypes;
+  bool HasTypePack = false;
 
 public:
   DeclSignatureParser(StringRef Mangled)
@@ -4126,19 +4127,32 @@ public:
     itd::Node *Ty = Base::parseType();
     if (Ty && IsBuiltin)
       BuiltinTypes.insert(Ty);
+    if (Ty && (Ty->getKind() == itd::Node::KParameterPackExpansion ||
+               Ty->getKind() == itd::Node::KParameterPack))
+      HasTypePack = true;
     return Ty;
   }
 
   bool isBuiltinType(const itd::Node *N) const {
     return BuiltinTypes.contains(N);
   }
+
+  bool hasTypePack() const { return HasTypePack; }
 };
 } // namespace
 
-// Skip cv and address space qualifiers.
-static const itd::Node *stripDeclTypeQualifiers(const itd::Node *N) {
+// Resolve template references and skip cv and address space qualifiers. Share
+// the visited set with reference collapsing because substitutions can form
+// cycles through forward template references.
+static const itd::Node *
+stripDeclTypeQualifiers(const itd::Node *N,
+                        SmallPtrSetImpl<const itd::Node *> &Visited) {
   while (N) {
-    if (N->getKind() == itd::Node::KQualType) {
+    if (!Visited.insert(N).second)
+      return nullptr;
+    if (N->getKind() == itd::Node::KForwardTemplateReference) {
+      N = static_cast<const itd::ForwardTemplateReference *>(N)->Ref;
+    } else if (N->getKind() == itd::Node::KQualType) {
       N = static_cast<const itd::QualType *>(N)->getChild();
     } else if (N->getKind() == itd::Node::KVendorExtQualType) {
       const auto *Q = static_cast<const itd::VendorExtQualType *>(N);
@@ -4186,13 +4200,25 @@ static Type *getDeclScalarType(const itd::Node *N,
 static Type *getDeclPtrElemType(const itd::Node *Param,
                                 const DeclSignatureParser &Parser,
                                 LLVMContext &Ctx) {
+  SmallPtrSet<const itd::Node *, 8> Visited;
+  Param = stripDeclTypeQualifiers(Param, Visited);
+  if (!Param)
+    return nullptr;
   const itd::Node *Pointee = nullptr;
-  if (Param->getKind() == itd::Node::KPointerType)
-    Pointee = static_cast<const itd::PointerType *>(Param)->getPointee();
-  else if (Param->getKind() == itd::Node::KReferenceType)
-    static_cast<const itd::ReferenceType *>(Param)->match(
-        [&](const itd::Node *P, itd::ReferenceKind) { Pointee = P; });
-  Pointee = stripDeclTypeQualifiers(Pointee);
+  if (Param->getKind() == itd::Node::KPointerType) {
+    Pointee = stripDeclTypeQualifiers(
+        static_cast<const itd::PointerType *>(Param)->getPointee(), Visited);
+  } else if (Param->getKind() == itd::Node::KReferenceType) {
+    // Reference collapsing changes the reference kind, not the referent.
+    // Stop at a pointer rather than treating int*& as a reference to int.
+    Pointee = Param;
+    do {
+      const itd::Node *Next = nullptr;
+      static_cast<const itd::ReferenceType *>(Pointee)->match(
+          [&](const itd::Node *P, itd::ReferenceKind) { Next = P; });
+      Pointee = stripDeclTypeQualifiers(Next, Visited);
+    } while (Pointee && Pointee->getKind() == itd::Node::KReferenceType);
+  }
   if (!Pointee || Pointee->getKind() != itd::Node::KVectorType)
     return getDeclScalarType(Pointee, Parser, Ctx);
 
@@ -4223,6 +4249,11 @@ void SPIRVEmitIntrinsicsImpl::parseFunDeclarations(Module &M) {
     DeclSignatureParser Parser(F.getName());
     const itd::Node *Root = Parser.parse();
     if (!Root || Root->getKind() != itd::Node::KFunctionEncoding)
+      continue;
+    // AST parameter counts include unexpanded packs, including empty packs.
+    // They can mask hidden IR arguments such as this, so do not map positions
+    // in signatures containing type packs without resolving their expansion.
+    if (Parser.hasTypePack())
       continue;
     // This prints the same name as getOclOrSpirvBuiltinDemangledName().
     itd::OutputBuffer OB;
