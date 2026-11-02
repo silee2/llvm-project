@@ -195,6 +195,8 @@ class SPIRVEmitIntrinsicsImpl
   SmallPtrSet<Instruction *, 0> AggrStores;
   GlobalVariableUsers GVUsers;
   SmallPtrSet<Value *, 0> Named;
+  SmallPtrSet<Argument *, 8> DemangledDeclParams;
+  DenseMap<CallInst *, Type *> ExternalReturnMemoryTypes;
 
   // a register of Instructions that don't have a complete type definition
   bool CanTodoType = true;
@@ -324,6 +326,7 @@ class SPIRVEmitIntrinsicsImpl
 
   bool runOnFunction(Function &F);
   bool postprocessTypes(Module &M);
+  bool inferExternalReturnTypes(Module &M);
   bool processFunctionPointers(Module &M);
   void parseFunDeclarations(Module &M);
   void useRoundingMode(ConstrainedFPIntrinsic *FPI, IRBuilder<> &B);
@@ -2216,11 +2219,30 @@ void SPIRVEmitIntrinsicsImpl::replacePointerOperandWithPtrCast(
     unsigned OperandToReplace, IRBuilder<> &B) {
   TypeValidated.insert(I);
 
+  // Memory accesses provide stronger evidence than a callee's expectation,
+  // even when their pointee differs from the call result's initial fallback.
+  if (auto *Call = dyn_cast<CallInst>(Pointer))
+    if (Function *F = Call->getCalledFunction();
+        F && F->isDeclaration() && !F->isIntrinsic() &&
+        (isa<LoadInst>(I) || isa<StoreInst>(I))) {
+      auto [It, Inserted] =
+          ExternalReturnMemoryTypes.try_emplace(Call, ExpectedElementType);
+      if (!Inserted && It->second != ExpectedElementType)
+        It->second = nullptr;
+    }
+
   // Do not emit spv_ptrcast if Pointer's element type is ExpectedElementType
   Type *PointerElemTy = deduceElementTypeHelper(Pointer, false);
   if (PointerElemTy == ExpectedElementType ||
-      isEquivalentTypes(PointerElemTy, ExpectedElementType))
+      isEquivalentTypes(PointerElemTy, ExpectedElementType)) {
+    // A memory access confirms even an i8 pointee that initially came from
+    // the opaque-pointer fallback, unlike a consumer declaration's hint.
+    if (auto *Call = dyn_cast<CallInst>(Pointer))
+      if (Function *F = Call->getCalledFunction();
+          F && F->isDeclaration() && (isa<LoadInst>(I) || isa<StoreInst>(I)))
+        eraseTodoType(Pointer);
     return;
+  }
 
   setInsertPointSkippingPhis(B, I);
   Value *ExpectedElementVal =
@@ -2280,7 +2302,8 @@ void SPIRVEmitIntrinsicsImpl::replacePointerOperandWithPtrCast(
       GR->buildAssignPtr(B, ExpectedElementType, Pointer);
       return;
     } else if (isTodoType(Pointer)) {
-      eraseTodoType(Pointer);
+      if (!isa<CallInst>(Pointer))
+        eraseTodoType(Pointer);
       if (!isa<CallInst>(Pointer) && !isaGEP(Pointer) &&
           !isa<AllocaInst>(Pointer)) {
         //  If this wouldn't be the first spv_ptrcast but existing type info is
@@ -2445,15 +2468,6 @@ void SPIRVEmitIntrinsicsImpl::insertPtrCastOrAssignTypeInstr(Instruction *I,
     if (!isPointerTy(ArgOperand->getType()))
       continue;
 
-    // Constants (nulls/undefs) are handled in insertAssignPtrTypeIntrs()
-    if (!isa<Instruction>(ArgOperand) && !isa<Argument>(ArgOperand)) {
-      // However, we may have assumptions about the formal argument's type and
-      // may have a need to insert a ptr cast for the actual parameter of this
-      // call.
-      Argument *CalledArg = CalledF->getArg(OpIdx);
-      if (!GR->findDeducedElementType(CalledArg))
-        continue;
-    }
 
     Type *ExpectedType =
         OpIdx < CalledArgTys.size() ? CalledArgTys[OpIdx] : nullptr;
@@ -2461,6 +2475,13 @@ void SPIRVEmitIntrinsicsImpl::insertPtrCastOrAssignTypeInstr(Instruction *I,
       ExpectedType = SPIRV::parseBuiltinCallArgumentBaseType(
           DemangledName, OpIdx, I->getContext());
     if (!ExpectedType || ExpectedType->isVoidTy())
+      continue;
+
+    // Event and other opaque builtin constants are lowered as values, not
+    // pointers to those values. Leave their existing constant lowering alone.
+    if (!isa<Instruction>(ArgOperand) && !isa<Argument>(ArgOperand) &&
+        ExpectedType->isTargetExtTy() &&
+        !isTypedPointerWrapper(cast<TargetExtType>(ExpectedType)))
       continue;
 
     if (ExpectedType->isTargetExtTy() &&
@@ -3965,6 +3986,100 @@ bool SPIRVEmitIntrinsicsImpl::postprocessTypes(Module &M) {
   return SzTodo > TodoTypeSz;
 }
 
+// Use declaration expectations only after definition-based deduction. An
+// external producer has one return type, so collect hints before updating any
+// of its calls; conflicting hints must not make inference depend on use order.
+bool SPIRVEmitIntrinsicsImpl::inferExternalReturnTypes(Module &M) {
+  DenseMap<Function *, Type *> Hints;
+  for (Argument *Arg : DemangledDeclParams) {
+    const auto &ST = TM.getSubtarget<SPIRVSubtarget>(*Arg->getParent());
+    auto *Registry = ST.getSPIRVGlobalRegistry();
+    Type *Hint = Registry->findDeducedElementType(Arg);
+    for (User *U : Arg->getParent()->users()) {
+      auto *Consumer = dyn_cast<CallInst>(U);
+      if (!Consumer || Consumer->getCalledFunction() != Arg->getParent())
+        continue;
+      Value *Actual = Consumer->getArgOperand(Arg->getArgNo());
+      while (auto *Cast = dyn_cast<IntrinsicInst>(Actual)) {
+        if (Cast->getIntrinsicID() != Intrinsic::spv_ptrcast)
+          break;
+        Actual = Cast->getArgOperand(0);
+      }
+      auto *Call = dyn_cast<CallInst>(Actual);
+      Function *Producer = Call ? Call->getCalledFunction() : nullptr;
+      if (!Producer || !Producer->isDeclaration() || Producer->isIntrinsic() ||
+          !isUntypedPointerTy(Producer->getReturnType()) ||
+          Registry->findDeducedElementType(Producer) ||
+          Registry->findReturnType(Producer))
+        continue;
+      std::string Name = getOclOrSpirvBuiltinDemangledName(Producer->getName());
+      if (SPIRV::isBuiltin(Name, ST.getPreferredInstructionSet()))
+        continue;
+      auto [It, Inserted] = Hints.try_emplace(Producer, Hint);
+      if (!Inserted && It->second != Hint)
+        It->second = nullptr;
+    }
+  }
+
+  bool Changed = false;
+  for (auto [Producer, Hint] : Hints) {
+    const auto &ST = TM.getSubtarget<SPIRVSubtarget>(*Producer);
+    GR = ST.getSPIRVGlobalRegistry();
+    CanUseAnyVectorRank =
+        ST.canUseExtension(SPIRV::Extension::SPV_EXT_long_vector);
+    SmallVector<CallInst *> Calls;
+    Type *StrongType = nullptr;
+    bool Conflict = false;
+    for (User *U : Producer->users()) {
+      auto *Call = dyn_cast<CallInst>(U);
+      if (!Call || Call->getCalledFunction() != Producer) {
+        Conflict = true;
+        break;
+      }
+      Calls.push_back(Call);
+      Type *Known = GR->findDeducedElementType(Call);
+      auto MemoryTy = ExternalReturnMemoryTypes.find(Call);
+      if (MemoryTy != ExternalReturnMemoryTypes.end()) {
+        Known = MemoryTy->second;
+        if (!Known) {
+          Conflict = true;
+          break;
+        }
+      } else if (!Known || isTodoType(Call)) {
+        continue;
+      }
+      if (StrongType && StrongType != Known) {
+        Conflict = true;
+        break;
+      }
+      StrongType = Known;
+    }
+    Type *ElemTy = StrongType ? StrongType : Hint;
+    if (Conflict || !ElemTy)
+      continue;
+    GR->addDeducedElementType(Producer, ElemTy);
+    GR->addReturnType(Producer, TypedPointerType::get(
+                                    ElemTy, getPointerAddressSpace(
+                                                Producer->getReturnType())));
+    for (CallInst *Call : Calls) {
+      CurrF = Call->getFunction();
+      Type *Previous = GR->findDeducedElementType(Call);
+      if (CallInst *Assign = GR->findAssignPtrTypeInstr(Call)) {
+        GR->updateAssignType(
+            Assign, Call,
+            getNormalizedPoisonValue(ElemTy, CanUseAnyVectorRank));
+        if (Previous && Previous != ElemTy) {
+          DenseSet<std::pair<Value *, Value *>> Visited;
+          propagateElemType(Call, Previous, Visited);
+        }
+      }
+      eraseTodoType(Call);
+    }
+    Changed = true;
+  }
+  return Changed;
+}
+
 // Parse unambiguous scalar/vector pointees, e.g. "float vector[4] const*".
 static Type *parseDeclPtrElemType(StringRef TypeStr, LLVMContext &Ctx) {
   if (!TypeStr.consume_back("*") && !TypeStr.consume_back("&"))
@@ -4049,6 +4164,7 @@ void SPIRVEmitIntrinsicsImpl::parseFunDeclarations(Module &M) {
       if (!AllowLongVectors && isLongVectorEXT(ElemTy))
         continue;
       ST.getSPIRVGlobalRegistry()->addDeducedElementType(F.getArg(Idx), ElemTy);
+      DemangledDeclParams.insert(F.getArg(Idx));
     }
   }
 }
@@ -4295,6 +4411,7 @@ bool SPIRVEmitIntrinsicsImpl::runOnModule(Module &M) {
 
   CanTodoType = false;
   Changed |= postprocessTypes(M);
+  Changed |= inferExternalReturnTypes(M);
 
   if (HaveFunPtrs)
     Changed |= processFunctionPointers(M);
