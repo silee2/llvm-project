@@ -4003,6 +4003,8 @@ bool SPIRVEmitIntrinsicsImpl::inferExternalReturnTypes(Module &M) {
       if (!Consumer || Consumer->getCalledFunction() != Arg->getParent())
         continue;
       Value *Actual = Consumer->getArgOperand(Arg->getArgNo());
+      // Call-site adaptation may already hide the producer behind spv_ptrcast.
+      // Do not infer through GEPs or other operations that change the pointee.
       while (auto *Cast = dyn_cast<IntrinsicInst>(Actual)) {
         if (Cast->getIntrinsicID() != Intrinsic::spv_ptrcast)
           break;
@@ -4036,6 +4038,7 @@ bool SPIRVEmitIntrinsicsImpl::inferExternalReturnTypes(Module &M) {
     for (User *U : Producer->users()) {
       auto *Call = dyn_cast<CallInst>(U);
       if (!Call || Call->getCalledFunction() != Producer) {
+        // Address-taken uses cannot be synchronized by updating direct calls.
         Conflict = true;
         break;
       }
@@ -4072,6 +4075,7 @@ bool SPIRVEmitIntrinsicsImpl::inferExternalReturnTypes(Module &M) {
             Assign, Call,
             getNormalizedPoisonValue(ElemTy, CanUseAnyVectorRank));
         if (Previous && Previous != ElemTy) {
+          // Preserve validated users' old expectations with use-site casts.
           DenseSet<std::pair<Value *, Value *>> Visited;
           propagateElemType(Call, Previous, Visited);
         }
@@ -4102,9 +4106,9 @@ public:
   }
 };
 
-// Parses a mangled function name and records which nodes come from a
-// <builtin-type> code. A class named e.g. "half" or "uint" produces the same
-// node kind and spelling as a builtin type, so the spelling alone is ambiguous.
+// Builtin types and user-defined classes can have the same AST node kind and
+// spelling, e.g. "half". Record nodes parsed from <builtin-type> codes so type
+// inference can distinguish builtins from classes with matching names.
 class DeclSignatureParser
     : public itd::AbstractManglingParser<DeclSignatureParser,
                                          DemangleNodeAllocator> {
@@ -4158,6 +4162,7 @@ stripDeclTypeQualifiers(const itd::Node *N,
       const auto *Q = static_cast<const itd::VendorExtQualType *>(N);
       StringRef Ext = Q->getExt();
       unsigned AS;
+      // Address spaces do not change the pointee; other vendor qualifiers may.
       if (Q->getTA() || !Ext.consume_front("AS") || Ext.getAsInteger(10, AS))
         return nullptr;
       N = Q->getTy();
@@ -4173,6 +4178,8 @@ static Type *getDeclScalarType(const itd::Node *N,
                                LLVMContext &Ctx) {
   if (!N || !Parser.isBuiltinType(N))
     return nullptr;
+  // DF16_ produces BinaryFPType(16), unlike Dh's NameType("half") below.
+  // Only the 16-bit binary format is mapped here.
   if (N->getKind() == itd::Node::KBinaryFPType) {
     bool IsFloat16 = false;
     static_cast<const itd::BinaryFPType *>(N)->match([&](const itd::Node *Dim) {
@@ -4224,6 +4231,7 @@ static Type *getDeclPtrElemType(const itd::Node *Param,
 
   const auto *VecTy = static_cast<const itd::VectorType *>(Pointee);
   const itd::Node *Dim = VecTy->getDimension();
+  // Only literal lengths can form an LLVM fixed vector; reject expressions.
   unsigned NumElts = 0;
   if (!Dim || Dim->getKind() != itd::Node::KNameType ||
       StringRef(static_cast<const itd::NameType *>(Dim)->getName())
